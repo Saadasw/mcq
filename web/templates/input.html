@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LaTeX Snippet Input</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="container">
+      <h1>MCQ Sheet Builder</h1>
+      <p>Choose number of inputs, then enter LaTeX body for each snippet (no preamble).</p>
+
+      <label for="count">Number of inputs</label>
+      <input id="count" type="number" min="1" max="40" value="4" />
+      <button id="make">Create inputs</button>
+
+      <form id="snippet-form" action="/compile" method="post">
+        <div id="inputs" class="inputs"></div>
+        <div class="actions">
+          <button type="submit">Compile & Show Output</button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      const makeBtn = document.getElementById('make');
+      const countEl = document.getElementById('count');
+      const inputs = document.getElementById('inputs');
+      makeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        inputs.innerHTML = '';
+        for (let i = 1; i <= n; i++) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'snippet';
+          const label = document.createElement('label');
+          label.textContent = `Input ${i}`;
+          const ta = document.createElement('textarea');
+          ta.name = 'texts[]';
+          ta.rows = 5;
+          ta.placeholder = 'Enter LaTeX body...';
+          wrapper.appendChild(label);
+          wrapper.appendChild(ta);
+          inputs.appendChild(wrapper);
+        }
+      });
+      // initialize
+      makeBtn.click();
+    </script>
+  </body>
+  </html>
+
+
+

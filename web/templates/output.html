@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MCQ Output</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="container">
+      <h1>MCQ Output</h1>
+      <p>Session: {{ session_id }}</p>
+
+      <div class="grid">
+        {% set total_cells = 40 %}
+        {% for i in range(total_cells) %}
+          <div class="cell">
+            {% if i < pdf_urls|length %}
+              <object data="{{ pdf_urls[i] }}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" class="pdf-embed">
+                <a href="{{ pdf_urls[i] }}" target="_blank">Open PDF</a>
+              </object>
+            {% else %}
+              <div class="empty">&nbsp;</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="actions">
+        <a class="button" href="/">Back to Input</a>
+      </div>
+    </div>
+  </body>
+  </html>
+
+
+
