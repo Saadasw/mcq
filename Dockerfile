@@ -23,12 +23,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy startup script
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
-# Copy application code
+# Copy application code (excluding start.sh to avoid overwriting)
 COPY . .
+
+# Copy and set execute permissions for startup script
+COPY --chmod=755 start.sh /app/start.sh
+RUN ls -la /app/start.sh
 
 # Create necessary directories that might not exist in repo
 RUN mkdir -p web/generated web/answers web/sessions web/answer_keys
