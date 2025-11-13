@@ -34,3 +34,6 @@ web/generated/
 .idea/
 .vscode/
 
+# Environment variables
+.env
+.env.local

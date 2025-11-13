@@ -201,6 +201,29 @@ luaotfload-tool --find="Noto Sans Bengali" || true
 
 If `luaotfload-tool --find` cannot locate the font, rebuild the cache (`luaotfload-tool -u`) and try again.
 
+## Quick Start (One Command)
+
+**Easiest way to run:**
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+Or use Make:
+```bash
+make run
+```
+
+See [QUICKSTART.md](./QUICKSTART.md) for detailed quick start guide.
+
+## Deploy to Free Hosting
+
+Deploy to Railway, Render, or Fly.io with one click:
+
+- 📖 [Deployment Guide](./DEPLOYMENT.md) - Complete deployment instructions
+- 🚀 [Quick Start](./QUICKSTART.md) - Get running locally in seconds
+
 ## Web app: input and output webpages
 
 Run a simple Flask app that lets you:

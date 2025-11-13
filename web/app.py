@@ -73,6 +73,11 @@ def ensure_clean_session_dir(session_id: str) -> Path:
 
 app = Flask(__name__, template_folder=str(APP_ROOT / "templates"), static_folder=str(APP_ROOT / "static"))
 
+# Get port from environment variable, default to 5000
+PORT = int(os.environ.get("PORT", 5000))
+# Get host from environment variable, default to 0.0.0.0
+HOST = os.environ.get("HOST", "0.0.0.0")
+
 
 @app.route("/")
 def input_page():
@@ -452,7 +457,14 @@ def save_answers():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/health")
+def health_check():
+    """Health check endpoint for deployment services"""
+    return jsonify({"status": "healthy", "service": "mcq-app"}), 200
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = os.environ.get("FLASK_ENV") == "development"
+    app.run(host=HOST, port=PORT, debug=debug)
 
 
