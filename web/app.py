@@ -128,6 +128,7 @@ def compile_route():
             # Validate all digits are 1-4
             if all(c in '1234' for c in correct_answers_str):
                 answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
+                answer_key_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(answer_key_file, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(["Session_ID", "Answer_Key"])
