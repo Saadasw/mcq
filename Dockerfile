@@ -23,6 +23,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Copy application code
 COPY . .
 
@@ -38,7 +42,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Use gunicorn to run the Flask app
 # Note: app.py is in the web directory, so we need to adjust the module path
-# Use PORT environment variable for port binding (defaults to 5000)
-# Using shell form to allow variable expansion
-CMD sh -c 'gunicorn web.app:app --bind 0.0.0.0:${PORT:-5000} --timeout 120 --workers 2 --access-logfile - --error-logfile -'
+# Use startup script which properly handles PORT environment variable
+CMD ["/app/start.sh"]
 
