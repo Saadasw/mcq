@@ -31,7 +31,7 @@ def load_snippet_template() -> str:
 
 
 def extract_body(content: str) -> str:
-    """Return LaTeX body between \begin{document} and \end{document} if present; otherwise original."""
+    r"""Return LaTeX body between \begin{document} and \end{document} if present; otherwise original."""
     m = re.search(r"\\begin\{document\}(.*?)\\end\{document\}", content, flags=re.S)
     if m:
         return m.group(1).strip()
@@ -51,12 +51,38 @@ def compile_snippet(content_tex: str, idx: int) -> Path:
         tex_path.write_text(content_tex, encoding="utf-8")
 
         # Compile with lualatex (twice for stability if needed)
-        for _ in range(2):
-            run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex_path.name], cwd=tdir)
+        # Use nonstopmode but don't halt on error to get better error messages
+        for attempt in range(2):
+            result = subprocess.run(
+                ["lualatex", "-interaction=nonstopmode", tex_path.name],
+                cwd=tdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            # On second attempt, check if PDF was created
+            if attempt == 1:
+                pdf_path = tdir / f"snippet_{idx}.pdf"
+                if not pdf_path.exists():
+                    # Try to read the log file for better error messages
+                    log_path = tdir / f"snippet_{idx}.log"
+                    error_details = ""
+                    if log_path.exists():
+                        log_content = log_path.read_text(encoding="utf-8", errors="ignore")
+                        # Extract error messages from log
+                        error_lines = [line for line in log_content.split("\n") if "!" in line or "Error" in line or "Fatal" in line]
+                        if error_lines:
+                            error_details = "\n".join(error_lines[-10:])  # Last 10 error lines
+                    raise RuntimeError(
+                        f"Failed to compile snippet {idx}.\n"
+                        f"LaTeX return code: {result.returncode}\n"
+                        f"Last output:\n{result.stdout[-1000:]}\n"
+                        f"Errors from log:\n{error_details}"
+                    )
 
         pdf_path = tdir / f"snippet_{idx}.pdf"
         if not pdf_path.exists():
-            raise RuntimeError(f"Expected PDF not produced: {pdf_path}")
+            raise RuntimeError(f"Expected PDF not produced for snippet {idx}: {pdf_path}")
 
         # No cropping: copy the compiled PDF directly to output snippets dir
         final_pdf = OUT_SNIPPETS_DIR / f"snippet_{idx}.pdf"
@@ -76,14 +102,23 @@ def read_inputs_from_dir() -> list[str]:
 def generate_sheet_tex(pdf_paths: list[Path], columns: int, rows: int, title: str) -> str:
     # Build a tabular with columns columns and rows rows (total cells = columns*rows)
     # Each cell includes the cropped snippet PDF, width=\linewidth
-    col_def = "|" + "|".join(["m{0.48\\textwidth}"] * columns) + "|"
+    # Use larger column width for better visibility (0.49 for 2 columns, 0.95 for 1 column)
+    col_width = "0.49\\textwidth" if columns == 2 else "0.95\\textwidth"
+    col_def = "|" + "|".join([f"m{{{col_width}}}"] * columns) + "|"
     lines = []
     lines.append("\\documentclass[12pt]{article}")
     lines.append("\\usepackage{graphicx}")
     lines.append("\\usepackage{array}")
-    lines.append("\\usepackage[margin=0.5in]{geometry}")
-    lines.append("\\setlength{\\tabcolsep}{6pt}")
-    lines.append("\\renewcommand{\\arraystretch}{1.3}")
+    lines.append("\\usepackage[paperwidth=105mm,paperheight=148mm,margin=0.2in]{geometry}")  # Half width of A5 landscape for larger text
+    lines.append("\\usepackage{polyglossia}")
+    lines.append("\\usepackage{tikz}")
+    lines.append("\\setmainlanguage{bengali}")
+    lines.append("\\newfontfamily\\bengalifont[Script=Bengali]{Nirmala UI}")
+    lines.append("\\AtBeginDocument{\\fontsize{14}{18}\\selectfont}")  # Larger font for better readability
+    lines.append("\\setlength{\\tabcolsep}{10pt}")  # Increased column separation
+    lines.append("\\renewcommand{\\arraystretch}{1.8}")  # Increased row height for bigger cells
+    # Larger, more visible radio buttons
+    lines.append("\\newcommand{\\radiobutton}[1]{\\tikz[baseline=-0.3ex]{\\draw[black,line width=0.8pt,fill=white] (0,0) circle (0.25em);}\\hspace{0.3em}\\normalsize#1\\hspace{0.5em}}")
     lines.append("\\begin{document}")
     lines.append(f"\\section*{{{title}}}")
     lines.append(f"\\begin{{tabular}}{{{col_def}}}")
@@ -101,10 +136,18 @@ def generate_sheet_tex(pdf_paths: list[Path], columns: int, rows: int, title: st
             idx = r + c * rows  # column-major to distribute evenly top-down per column
             path = cells[idx]
             if path:
-                row_cells.append(f"\\centering\\includegraphics[width=\\linewidth]{{{path}}}")
+                # Create cell content with PDF and radio buttons at bottom
+                cell_content = []
+                cell_content.append("\\centering")
+                # Use scalebox to make PDF content slightly larger if needed
+                cell_content.append(f"\\includegraphics[width=0.98\\linewidth,keepaspectratio]{{{path}}}")
+                cell_content.append("\\\\[0.5em]")  # Increased spacing before radio buttons
+                # Radio buttons: ক, খ, গ, ঘ - using normal size instead of small
+                cell_content.append("\\radiobutton{ক}\\radiobutton{খ}\\radiobutton{গ}\\radiobutton{ঘ}")
+                row_cells.append(" ".join(cell_content))
             else:
                 row_cells.append("~")
-        lines.append(" & ".join(row_cells) + " \\\\")
+        lines.append(" & ".join(row_cells) + " \\\\[0.2em]")  # Added extra row spacing
     lines.append("\\end{tabular}")
     lines.append("\\end{document}")
     return "\n".join(lines)
@@ -116,18 +159,27 @@ def build_sheets(snippet_texts: list[str]):
 
     cropped_paths: list[Path] = []
     for i, snippet in enumerate(snippet_texts, start=1):
-        rendered = render_snippet_tex(template, snippet)
-        cropped = compile_snippet(rendered, i)
-        cropped_paths.append(cropped)
+        try:
+            print(f"Compiling snippet {i}/{len(snippet_texts)}...", end=" ", flush=True)
+            rendered = render_snippet_tex(template, snippet)
+            cropped = compile_snippet(rendered, i)
+            cropped_paths.append(cropped)
+            print("[OK]")
+        except Exception as e:
+            print("[FAILED]")
+            print(f"Error compiling snippet {i}: {e}")
+            print(f"Skipping snippet {i} and continuing with others...")
+            # Continue with other snippets instead of failing completely
+            continue
 
-    # 2-column desktop: 20 rows per column (40 cells)
-    two_col_tex = generate_sheet_tex(cropped_paths, columns=2, rows=20, title="MCQ Sheet (2-Column)")
+    # 2-column desktop: 15 rows per column (30 cells) - reduced for bigger cells
+    two_col_tex = generate_sheet_tex(cropped_paths, columns=2, rows=15, title="MCQ Sheet (2-Column)")
     two_col_path = OUT_DIR / "sheet_2col.tex"
     two_col_path.write_text(two_col_tex, encoding="utf-8")
     run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", two_col_path.name], cwd=OUT_DIR)
 
-    # 1-column mobile: 40 rows (40 cells)
-    one_col_tex = generate_sheet_tex(cropped_paths, columns=1, rows=40, title="MCQ Sheet (1-Column)")
+    # 1-column mobile: 30 rows (30 cells) - reduced for bigger cells
+    one_col_tex = generate_sheet_tex(cropped_paths, columns=1, rows=30, title="MCQ Sheet (1-Column)")
     one_col_path = OUT_DIR / "sheet_1col.tex"
     one_col_path.write_text(one_col_tex, encoding="utf-8")
     run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", one_col_path.name], cwd=OUT_DIR)

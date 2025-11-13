@@ -5,20 +5,54 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MCQ Output</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   </head>
   <body>
     <div class="container">
-      <h1>MCQ Output</h1>
-      <p>Session: {{ session_id }}</p>
+      <h1 class="mobile-hide-on-scroll">MCQ Output</h1>
+      <div class="student-info mobile-compact">
+        <div class="form-group">
+          <label for="student_id_input"><strong>Student ID:</strong></label>
+          <input id="student_id_input" type="text" required placeholder="Enter Student ID" style="width: 300px; padding: 8px; font-size: 16px; margin-left: 10px;" />
+        </div>
+        <div class="timer-section">
+          <button id="start-timer-btn" class="button timer-button" style="background: #28a745; margin-top: 8px;">
+            Start Exam (25:00)
+          </button>
+          <div id="timer-display" class="timer-display" style="display: none;">
+            <strong>Time Remaining: <span id="timer-text">25:00</span></strong>
+          </div>
+        </div>
+        <p class="mobile-hide"><strong>Session:</strong> {{ session_id }}</p>
+        <p><strong>Questions:</strong> {{ num_questions }}</p>
+        <p class="share-link-desktop"><strong>Share:</strong> <input type="text" id="share-url" readonly value="{{ request.url }}" style="width: 100%; max-width: 500px; padding: 4px; font-size: 12px; margin-top: 4px;" onclick="this.select();" /></p>
+      </div>
+
+      <div id="message" class="message" style="display: none;"></div>
 
       <div class="grid">
-        {% set total_cells = 40 %}
+        {% set total_cells = 30 %}
         {% for i in range(total_cells) %}
-          <div class="cell">
+          <div class="cell" id="cell-{{ i }}">
             {% if i < pdf_urls|length %}
-              <object data="{{ pdf_urls[i] }}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" class="pdf-embed">
-                <a href="{{ pdf_urls[i] }}" target="_blank">Open PDF</a>
-              </object>
+              <div class="pdf-container pdf-blurred" id="pdf-container-{{ i }}">
+                <div class="pdf-loading" id="pdf-loading-{{ i }}">Loading PDF...</div>
+                <!-- Desktop: Use iframe for better quality -->
+                <iframe id="pdf-iframe-{{ i }}" src="{{ pdf_urls[i] }}#toolbar=0&navpanes=0&scrollbar=0" class="pdf-iframe" frameborder="0" style="display: none;"></iframe>
+                <!-- Mobile: Use canvas for compatibility -->
+                <canvas id="pdf-canvas-{{ i }}" class="pdf-canvas" style="display: none;"></canvas>
+                <div class="pdf-fallback" style="display: none;">
+                  <p>PDF viewer not available. <a href="{{ pdf_urls[i] }}" target="_blank" class="button">Open PDF in new tab</a></p>
+                </div>
+              </div>
+              <div class="radio-buttons-container">
+                <div class="radio-buttons">
+                  <label><input type="radio" name="cell{{ i }}" value="ক"> ক</label>
+                  <label><input type="radio" name="cell{{ i }}" value="খ"> খ</label>
+                  <label><input type="radio" name="cell{{ i }}" value="গ"> গ</label>
+                  <label><input type="radio" name="cell{{ i }}" value="ঘ"> ঘ</label>
+                </div>
+              </div>
             {% else %}
               <div class="empty">&nbsp;</div>
             {% endif %}
@@ -27,9 +61,742 @@
       </div>
 
       <div class="actions">
+        <button id="save-answers" class="button" style="background: #28a745; margin-right: 10px;">Save Answers</button>
+        <a class="button" href="/sessions" style="margin-right: 10px;">View All Sessions</a>
         <a class="button" href="/">Back to Input</a>
       </div>
     </div>
+
+    <script>
+      // Configure PDF.js worker
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      
+      const sessionId = "{{ session_id }}";
+      const messageEl = document.getElementById('message');
+      const saveBtn = document.getElementById('save-answers');
+      const studentIdInput = document.getElementById('student_id_input');
+      const startTimerBtn = document.getElementById('start-timer-btn');
+      const timerDisplay = document.getElementById('timer-display');
+      const timerText = document.getElementById('timer-text');
+      
+      // Timer state
+      let timerInterval = null;
+      let timeRemaining = 25 * 60; // 25 minutes in seconds
+      let examStarted = false;
+      
+      // LocalStorage keys
+      const STORAGE_KEY_ANSWERS = `exam_answers_${sessionId}`;
+      const STORAGE_KEY_STUDENT_ID = `exam_student_id_${sessionId}`;
+      const STORAGE_EXPIRY = 30 * 60 * 1000; // 30 minutes in milliseconds
+      
+      // Save answers to localStorage
+      function saveAnswersToStorage() {
+        const answers = {};
+        const radioGroups = document.querySelectorAll('input[type="radio"]:checked');
+        radioGroups.forEach(radio => {
+          answers[radio.name] = radio.value;
+        });
+        const data = {
+          answers: answers,
+          timestamp: Date.now()
+        };
+        localStorage.setItem(STORAGE_KEY_ANSWERS, JSON.stringify(data));
+      }
+      
+      // Load answers from localStorage
+      function loadAnswersFromStorage() {
+        try {
+          const dataStr = localStorage.getItem(STORAGE_KEY_ANSWERS);
+          if (!dataStr) return false;
+          
+          const data = JSON.parse(dataStr);
+          const now = Date.now();
+          
+          // Check if data is expired (30 minutes)
+          if (now - data.timestamp > STORAGE_EXPIRY) {
+            localStorage.removeItem(STORAGE_KEY_ANSWERS);
+            return false;
+          }
+          
+          // Restore answers
+          Object.keys(data.answers).forEach(name => {
+            const radio = document.querySelector(`input[name="${name}"][value="${data.answers[name]}"]`);
+            if (radio) {
+              radio.checked = true;
+            }
+          });
+          
+          return true;
+        } catch (e) {
+          console.error('Error loading answers from storage:', e);
+          return false;
+        }
+      }
+      
+      // Save student ID to localStorage
+      function saveStudentIdToStorage() {
+        const studentId = studentIdInput.value.trim();
+        if (studentId) {
+          localStorage.setItem(STORAGE_KEY_STUDENT_ID, studentId);
+        }
+      }
+      
+      // Load student ID from localStorage
+      function loadStudentIdFromStorage() {
+        const studentId = localStorage.getItem(STORAGE_KEY_STUDENT_ID);
+        if (studentId) {
+          studentIdInput.value = studentId;
+          updateStartButton();
+        }
+      }
+      
+      // Check for existing session on page load
+      async function checkExistingSession() {
+        const studentId = studentIdInput.value.trim();
+        if (!studentId) {
+          // Try to load from storage
+          loadStudentIdFromStorage();
+          const loadedId = studentIdInput.value.trim();
+          if (!loadedId) return;
+        }
+        
+        const currentStudentId = studentIdInput.value.trim();
+        if (!currentStudentId) return;
+        
+        try {
+          const response = await fetch('/check-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              student_id: currentStudentId,
+              session_id: sessionId
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success && data.exists) {
+            if (data.expired) {
+              showMessage('Your session has expired (more than 30 minutes). Please start a new exam.', 'warning');
+              localStorage.removeItem(STORAGE_KEY_ANSWERS);
+              localStorage.removeItem(STORAGE_KEY_STUDENT_ID);
+              return;
+            }
+            
+            if (data.time_up) {
+              showMessage('Time is up! Your exam has ended.', 'error');
+              disableRadioButtons(true);
+              timerDisplay.style.display = 'block';
+              timerText.textContent = '00:00';
+              timerDisplay.style.background = '#f8d7da';
+              timerDisplay.style.borderColor = '#dc3545';
+              timerText.style.color = '#721c24';
+              examStarted = true;
+              studentIdInput.disabled = true;
+              startTimerBtn.style.display = 'none';
+              // Remove blur
+              const pdfContainers = document.querySelectorAll('.pdf-container');
+              pdfContainers.forEach(container => {
+                container.classList.remove('pdf-blurred');
+              });
+              return;
+            }
+            
+            // Resume session
+            timeRemaining = data.remaining_seconds;
+            examStarted = true;
+            startTimerBtn.style.display = 'none';
+            timerDisplay.style.display = 'block';
+            studentIdInput.disabled = true;
+            
+            // Remove blur from PDFs
+            const pdfContainers = document.querySelectorAll('.pdf-container');
+            pdfContainers.forEach(container => {
+              container.classList.remove('pdf-blurred');
+            });
+            
+            // Enable radio buttons
+            disableRadioButtons(false);
+            
+            // Load saved answers
+            loadAnswersFromStorage();
+            
+            // Start timer
+            startTimerCountdown();
+            
+            showMessage('Session resumed. Time remaining: ' + formatTime(timeRemaining), 'info');
+          }
+        } catch (error) {
+          console.error('Error checking session:', error);
+        }
+      }
+      
+      // Format time for display
+      function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+      
+      // Sync timer with backend periodically
+      async function syncTimerWithBackend() {
+        const studentId = studentIdInput.value.trim();
+        if (!studentId || !examStarted) return;
+        
+        try {
+          const response = await fetch('/check-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              student_id: studentId,
+              session_id: sessionId
+            })
+          });
+          
+          const data = await response.json();
+          if (data.success && data.exists && !data.time_up && !data.expired) {
+            // Sync remaining time from backend
+            timeRemaining = data.remaining_seconds;
+          }
+        } catch (error) {
+          console.error('Error syncing timer:', error);
+        }
+      }
+      
+      // Start timer countdown
+      function startTimerCountdown() {
+        if (timerInterval) {
+          clearInterval(timerInterval);
+        }
+        
+        // Update display immediately
+        timerText.textContent = formatTime(timeRemaining);
+        
+        // Change color if less than 5 minutes
+        if (timeRemaining < 300) {
+          timerDisplay.style.background = '#f8d7da';
+          timerDisplay.style.borderColor = '#dc3545';
+          timerText.style.color = '#721c24';
+        }
+        
+        // Sync with backend every 30 seconds
+        let syncCounter = 0;
+        
+        timerInterval = setInterval(() => {
+          timeRemaining--;
+          syncCounter++;
+          
+          // Sync with backend every 30 seconds
+          if (syncCounter >= 30) {
+            syncCounter = 0;
+            syncTimerWithBackend();
+          }
+          
+          if (timeRemaining <= 0) {
+            clearInterval(timerInterval);
+            timerText.textContent = '00:00';
+            timerDisplay.style.background = '#f8d7da';
+            timerDisplay.style.borderColor = '#dc3545';
+            timerText.style.color = '#721c24';
+            showMessage('Time is up! Please save your answers.', 'error');
+            disableRadioButtons(true);
+            // Auto-save answers when time is up
+            setTimeout(() => {
+              saveBtn.click();
+            }, 2000);
+            return;
+          }
+          
+          // Update timer display
+          timerText.textContent = formatTime(timeRemaining);
+          
+          // Save answers periodically (every 10 seconds)
+          if (timeRemaining % 10 === 0) {
+            saveAnswersToStorage();
+          }
+          
+          // Change color when less than 5 minutes
+          if (timeRemaining < 300) {
+            timerDisplay.style.background = '#f8d7da';
+            timerDisplay.style.borderColor = '#dc3545';
+            timerText.style.color = '#721c24';
+          }
+        }, 1000);
+      }
+      
+      // Disable radio buttons initially
+      function disableRadioButtons(disable) {
+        const radios = document.querySelectorAll('input[type="radio"]');
+        radios.forEach(radio => {
+          radio.disabled = disable;
+        });
+      }
+      
+      // Initially disable radio buttons
+      disableRadioButtons(true);
+      
+      // Check Student ID and enable/disable start button
+      function updateStartButton() {
+        const studentId = studentIdInput.value.trim();
+        if (studentId.length > 0 && !examStarted) {
+          startTimerBtn.disabled = false;
+          startTimerBtn.style.opacity = '1';
+          startTimerBtn.style.cursor = 'pointer';
+        } else {
+          startTimerBtn.disabled = true;
+          startTimerBtn.style.opacity = '0.6';
+          startTimerBtn.style.cursor = 'not-allowed';
+        }
+      }
+      
+      // Update start button on Student ID input
+      studentIdInput.addEventListener('input', () => {
+        updateStartButton();
+        saveStudentIdToStorage();
+        // Check for existing session when student ID is entered
+        if (studentIdInput.value.trim()) {
+          checkExistingSession();
+        }
+      });
+      
+      // Save answers when radio buttons change
+      document.querySelectorAll('input[type="radio"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+          if (examStarted) {
+            saveAnswersToStorage();
+          }
+        });
+      });
+      
+      // Start timer function
+      async function startTimer() {
+        const studentId = studentIdInput.value.trim();
+        if (!studentId) {
+          showMessage('Please enter your Student ID first!', 'error');
+          return;
+        }
+        
+        if (examStarted) return;
+        
+        // Save student ID
+        saveStudentIdToStorage();
+        
+        // Start session on backend
+        try {
+          const response = await fetch('/start-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              student_id: studentId,
+              session_id: sessionId
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (!data.success) {
+            showMessage('Error starting session: ' + (data.error || 'Unknown error'), 'error');
+            return;
+          }
+          
+          // Check if this is a resumed session
+          if (!data.is_new) {
+            // Session already exists, check remaining time
+            const checkResponse = await fetch('/check-session', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                student_id: studentId,
+                session_id: sessionId
+              })
+            });
+            
+            const checkData = await checkResponse.json();
+            if (checkData.success && checkData.exists) {
+              if (checkData.time_up) {
+                showMessage('Time is up! Your exam has ended.', 'error');
+                return;
+              }
+              timeRemaining = checkData.remaining_seconds;
+            }
+          }
+        } catch (error) {
+          console.error('Error starting session:', error);
+          showMessage('Error starting session. Please try again.', 'error');
+          return;
+        }
+        
+        examStarted = true;
+        startTimerBtn.style.display = 'none';
+        timerDisplay.style.display = 'block';
+        
+        // Remove blur from all PDFs
+        const pdfContainers = document.querySelectorAll('.pdf-container');
+        pdfContainers.forEach(container => {
+          container.classList.remove('pdf-blurred');
+        });
+        
+        // Enable radio buttons
+        disableRadioButtons(false);
+        
+        // Disable Student ID input
+        studentIdInput.disabled = true;
+        
+        // Load saved answers if any
+        loadAnswersFromStorage();
+        
+        // Start countdown
+        startTimerCountdown();
+      }
+      
+      // Start timer button click
+      startTimerBtn.addEventListener('click', startTimer);
+      
+      // Check for existing session on page load (after a short delay to ensure DOM is ready)
+      setTimeout(() => {
+        loadStudentIdFromStorage();
+        if (studentIdInput.value.trim()) {
+          checkExistingSession();
+        }
+      }, 500);
+      
+      // Show message function
+      function showMessage(text, type) {
+        messageEl.textContent = text;
+        messageEl.className = `message ${type}`;
+        messageEl.style.display = 'block';
+        setTimeout(() => {
+          messageEl.style.display = 'none';
+        }, 5000);
+      }
+      
+      // Detect if mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+      
+      // Load PDFs using PDF.js for better mobile support
+      const pdfUrls = {{ pdf_urls | tojson }};
+      
+      async function loadPDF(index, url) {
+        const canvas = document.getElementById(`pdf-canvas-${index}`);
+        const iframe = document.getElementById(`pdf-iframe-${index}`);
+        const container = document.getElementById(`pdf-container-${index}`);
+        const loading = document.getElementById(`pdf-loading-${index}`);
+        const fallback = container.querySelector('.pdf-fallback');
+        
+        if (!container) return;
+        
+        // Desktop: Use iframe for better quality and native PDF rendering
+        if (!isMobile && iframe) {
+          // Hide other elements
+          if (loading) loading.style.display = 'none';
+          if (canvas) canvas.style.display = 'none';
+          if (fallback) fallback.style.display = 'none';
+          
+          // Show iframe immediately - browser's native PDF viewer is best quality
+          if (iframe) {
+            iframe.style.display = 'block';
+            // Fallback to canvas after 3 seconds if iframe doesn't work
+            setTimeout(function() {
+              // Check if iframe is still hidden or failed
+              if (iframe.style.display === 'none' || (iframe.contentWindow && !iframe.contentWindow.document)) {
+                console.log('Iframe failed, using canvas fallback');
+                loadPDFCanvas(index, url);
+              }
+            }, 3000);
+          }
+        } else {
+          // Mobile: Use canvas rendering with high quality
+          loadPDFCanvas(index, url);
+        }
+      }
+      
+      async function loadPDFCanvas(index, url) {
+        const canvas = document.getElementById(`pdf-canvas-${index}`);
+        const container = document.getElementById(`pdf-container-${index}`);
+        const loading = document.getElementById(`pdf-loading-${index}`);
+        const iframe = document.getElementById(`pdf-iframe-${index}`);
+        const fallback = container.querySelector('.pdf-fallback');
+        
+        if (!canvas || !container) return;
+        
+        try {
+          // Show loading
+          if (loading) loading.style.display = 'block';
+          if (canvas) canvas.style.display = 'none';
+          if (iframe) iframe.style.display = 'none';
+          if (fallback) fallback.style.display = 'none';
+          
+          // Load PDF with error handling
+          const loadingTask = pdfjsLib.getDocument({
+            url: url,
+            withCredentials: false
+          });
+          const pdf = await loadingTask.promise;
+          const page = await pdf.getPage(1);
+          
+          // Calculate scale - use higher DPI for better quality
+          const viewport = page.getViewport({ scale: 1.0 });
+          const containerWidth = container.clientWidth - 20;
+          const containerHeight = container.clientHeight - 20;
+          
+          // Use device pixel ratio for better quality on high-DPI screens
+          const dpr = Math.min(window.devicePixelRatio || 1, 2); // Cap at 2x for performance
+          
+          // Calculate base scale to fit container
+          const baseScale = Math.min(
+            containerWidth / viewport.width,
+            containerHeight / viewport.height
+          );
+          
+          // Use higher scale for better quality (at least 2x, up to 3x)
+          const qualityScale = Math.min(Math.max(baseScale * 1.5, 2.0), 3.0);
+          const scaledViewport = page.getViewport({ scale: qualityScale });
+          
+          // Set canvas size with device pixel ratio for crisp rendering
+          canvas.height = Math.floor(scaledViewport.height * dpr);
+          canvas.width = Math.floor(scaledViewport.width * dpr);
+          canvas.style.height = scaledViewport.height + 'px';
+          canvas.style.width = scaledViewport.width + 'px';
+          
+          const context = canvas.getContext('2d', { alpha: false });
+          context.scale(dpr, dpr);
+          
+          await page.render({
+            canvasContext: context,
+            viewport: scaledViewport
+          }).promise;
+          
+          // Hide loading, show canvas
+          if (loading) loading.style.display = 'none';
+          if (canvas) canvas.style.display = 'block';
+          
+        } catch (error) {
+          console.error('Error loading PDF:', error);
+          // Hide loading, show fallback
+          if (loading) loading.style.display = 'none';
+          if (canvas) canvas.style.display = 'none';
+          if (iframe) iframe.style.display = 'none';
+          if (fallback) {
+            fallback.style.display = 'block';
+            // Update fallback link with actual URL
+            const link = fallback.querySelector('a');
+            if (link) link.href = url;
+          }
+        }
+      }
+      
+      // Load all PDFs
+      pdfUrls.forEach((url, index) => {
+        loadPDF(index, url);
+      });
+
+      // Stop timer function
+      function stopTimer() {
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        examStarted = false;
+      }
+      
+      saveBtn.addEventListener('click', async () => {
+        // Get student ID from input field
+        const studentId = studentIdInput.value.trim();
+        
+        if (!studentId) {
+          showMessage('Please enter your Student ID first!', 'error');
+          return;
+        }
+        
+        if (!examStarted) {
+          showMessage('Please start the exam timer first!', 'warning');
+          return;
+        }
+        
+        // Stop the timer and end the exam immediately when Save is clicked
+        stopTimer();
+        disableRadioButtons(true);
+        
+        // Update timer display to show exam ended
+        timerDisplay.style.background = '#d4edda';
+        timerDisplay.style.borderColor = '#28a745';
+        timerText.style.color = '#155724';
+        timerText.textContent = 'Exam Ended';
+
+        // Collect all answers
+        const answers = {};
+        const radioGroups = document.querySelectorAll('input[type="radio"]');
+        
+        radioGroups.forEach(radio => {
+          if (radio.checked) {
+            answers[radio.name] = radio.value;
+          }
+        });
+
+        // Check if all questions are answered
+        const totalQuestions = {{ num_questions }};
+        const answeredQuestions = Object.keys(answers).length;
+        
+        if (answeredQuestions < totalQuestions) {
+          showMessage(`Please answer all questions. You have answered ${answeredQuestions} out of ${totalQuestions}.`, 'warning');
+          return;
+        }
+
+        // Disable button and show loading
+        saveBtn.disabled = true;
+        studentIdInput.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        showMessage('Saving answers...', 'info');
+
+        try {
+          const response = await fetch('/save-answers', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              student_id: studentId,
+              session_id: sessionId,
+              answers: answers
+            })
+          });
+
+          const data = await response.json();
+          
+          if (data.success) {
+            // Safely get response data with defaults
+            const correctAnswers = data.correct_answers || {};
+            const wrongQuestions = Array.isArray(data.wrong_questions) ? data.wrong_questions : [];
+            const studentAnswers = data.student_answers || {};
+            
+            // Display marks (only if answer key exists)
+            const hasAnswerKey = correctAnswers && typeof correctAnswers === 'object' && Object.keys(correctAnswers).length > 0;
+            const marks = data.marks || 0;
+            const total = data.total || 0;
+            const percentage = total > 0 && hasAnswerKey ? ((marks / total) * 100).toFixed(1) : 0;
+            
+            // Highlight correct answers for wrong questions (only if answer key exists)
+            if (hasAnswerKey && wrongQuestions.length > 0) {
+              wrongQuestions.forEach(questionIndex => {
+                const cellKey = `cell${questionIndex}`;
+                const correctAnswer = correctAnswers[cellKey];
+                if (correctAnswer) {
+                  // Find the correct answer radio button and highlight it in red
+                  const correctRadio = document.querySelector(`input[name="${cellKey}"][value="${correctAnswer}"]`);
+                  if (correctRadio) {
+                    const label = correctRadio.closest('label');
+                    if (label) {
+                      label.style.backgroundColor = '#ffebee';
+                      label.style.border = '2px solid #f44336';
+                      label.style.borderRadius = '4px';
+                      label.style.padding = '4px 8px';
+                      label.style.fontWeight = 'bold';
+                      label.style.color = '#c62828';
+                      label.classList.add('correct-answer-highlight');
+                      
+                      // Add a visual indicator
+                      const indicator = document.createElement('span');
+                      indicator.textContent = ' ✓ Correct Answer';
+                      indicator.style.color = '#c62828';
+                      indicator.style.marginLeft = '4px';
+                      label.appendChild(indicator);
+                    }
+                  }
+                  
+                  // Also highlight the student's wrong answer (if selected)
+                  const studentAnswer = studentAnswers[cellKey];
+                  if (studentAnswer && studentAnswer !== correctAnswer) {
+                    const wrongRadio = document.querySelector(`input[name="${cellKey}"][value="${studentAnswer}"]`);
+                    if (wrongRadio && wrongRadio.checked) {
+                      const wrongLabel = wrongRadio.closest('label');
+                      if (wrongLabel) {
+                        wrongLabel.style.backgroundColor = '#fff3e0';
+                        wrongLabel.style.border = '1px dashed #ff9800';
+                        wrongLabel.style.borderRadius = '4px';
+                        wrongLabel.style.padding = '4px 8px';
+                      }
+                    }
+                  }
+                }
+              });
+              
+              // Show message about wrong answers
+              if (wrongQuestions.length > 0) {
+                const wrongMsg = document.createElement('div');
+                wrongMsg.className = 'message warning';
+                wrongMsg.style.marginTop = '16px';
+                wrongMsg.innerHTML = `<strong>Incorrect Answers:</strong> Questions ${wrongQuestions.map(i => i + 1).join(', ')}. Correct answers are highlighted in <span style="color: #c62828; font-weight: bold;">red</span>.`;
+                messageEl.parentNode.insertBefore(wrongMsg, messageEl.nextSibling);
+              }
+            }
+            
+            if (hasAnswerKey) {
+              showMessage(`Answers saved successfully! Exam ended. Your Score: ${marks}/${total} (${percentage}%)`, 'success');
+              saveBtn.textContent = `Answers Saved ✓ (${marks}/${total})`;
+              
+              // Show marks in a more prominent way
+              const marksDisplay = document.createElement('div');
+              marksDisplay.className = 'message success';
+              marksDisplay.style.marginTop = '16px';
+              marksDisplay.style.fontSize = '20px';
+              marksDisplay.style.fontWeight = 'bold';
+              marksDisplay.style.textAlign = 'center';
+              marksDisplay.style.padding = '20px';
+              marksDisplay.innerHTML = `
+                <h2 style="margin: 0 0 10px 0;">Your Results</h2>
+                <div style="font-size: 36px; color: #28a745; margin: 10px 0;">${marks}/${total}</div>
+                <div style="font-size: 24px; color: #666;">${percentage}%</div>
+              `;
+              messageEl.parentNode.insertBefore(marksDisplay, messageEl.nextSibling);
+            } else {
+              showMessage('Answers saved successfully! Exam ended. (Answer key not provided - marks not calculated)', 'success');
+              saveBtn.textContent = 'Answers Saved ✓';
+            }
+            
+            saveBtn.style.background = '#28a745';
+            saveBtn.disabled = true;
+            
+            // Clear localStorage after successful save
+            localStorage.removeItem(STORAGE_KEY_ANSWERS);
+            localStorage.removeItem(STORAGE_KEY_STUDENT_ID);
+            // Keep Student ID disabled (already disabled when timer started)
+          } else {
+            showMessage('Error saving answers: ' + (data.error || 'Unknown error'), 'error');
+            // Timer is already stopped, exam has ended
+            // Re-enable save button to allow retry
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Answers';
+            // Radio buttons remain disabled since exam has ended
+          }
+        } catch (error) {
+          showMessage('Error saving answers: ' + error.message, 'error');
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Answers';
+          // Timer is already stopped, exam is ended - don't restart
+          // Radio buttons remain disabled since exam has ended
+        }
+      });
+
+      function showMessage(text, type) {
+        messageEl.textContent = text;
+        messageEl.className = 'message ' + type;
+        messageEl.style.display = 'block';
+        
+        if (type === 'success') {
+          setTimeout(() => {
+            messageEl.style.display = 'none';
+          }, 3000);
+        }
+      }
+    </script>
   </body>
   </html>
 

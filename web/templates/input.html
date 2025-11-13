@@ -11,12 +11,25 @@
       <h1>MCQ Sheet Builder</h1>
       <p>Choose number of inputs, then enter LaTeX body for each snippet (no preamble).</p>
 
-      <label for="count">Number of inputs</label>
-      <input id="count" type="number" min="1" max="40" value="4" />
-      <button id="make">Create inputs</button>
-
       <form id="snippet-form" action="/compile" method="post">
+        <label for="count">Number of inputs</label>
+        <input id="count" type="number" min="1" max="40" value="4" />
+        <button id="make" type="button">Create inputs</button>
+
         <div id="inputs" class="inputs"></div>
+        
+        <div class="form-group" style="margin-top: 20px;">
+          <label for="correct-answers"><strong>Correct Answers (e.g., 142 means Q1=option1, Q2=option4, Q3=option2):</strong></label>
+          <input id="correct-answers" name="correct_answers" type="text" 
+                 placeholder="Enter answer keys like: 1423" 
+                 pattern="[1-4]+" 
+                 style="width: 100%; max-width: 500px; padding: 8px; font-size: 16px; margin-top: 8px;" 
+                 title="Enter digits 1-4 only (1=ক, 2=খ, 3=গ, 4=ঘ)" />
+          <small id="correct-answers-help" style="display: block; color: #666; margin-top: 4px;">
+            Format: Enter digits 1-4 for each question. Example: "1423" means Q1=ক, Q2=ঘ, Q3=খ, Q4=গ
+          </small>
+        </div>
+        
         <div class="actions">
           <button type="submit">Compile & Show Output</button>
         </div>
@@ -27,6 +40,9 @@
       const makeBtn = document.getElementById('make');
       const countEl = document.getElementById('count');
       const inputs = document.getElementById('inputs');
+      const correctAnswersInput = document.getElementById('correct-answers');
+      const form = document.getElementById('snippet-form');
+      
       makeBtn.addEventListener('click', (e) => {
         e.preventDefault();
         const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
@@ -44,7 +60,64 @@
           wrapper.appendChild(ta);
           inputs.appendChild(wrapper);
         }
+        // Update placeholder and validation for correct answers
+        updateCorrectAnswersPlaceholder();
       });
+      
+      function updateCorrectAnswersPlaceholder() {
+        const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        correctAnswersInput.placeholder = `Enter ${n} digits (1-4) for ${n} questions. Example: ${'1'.repeat(n)}`;
+        correctAnswersInput.maxLength = n;
+        correctAnswersInput.pattern = `[1-4]{${n}}`;
+      }
+      
+      // Validate correct answers input
+      correctAnswersInput.addEventListener('input', (e) => {
+        const value = e.target.value;
+        const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        
+        // Only allow digits 1-4
+        e.target.value = value.replace(/[^1-4]/g, '');
+        
+        // Limit length to number of questions
+        if (e.target.value.length > n) {
+          e.target.value = e.target.value.substring(0, n);
+        }
+        
+        // Show validation message
+        const small = e.target.nextElementSibling;
+        if (e.target.value.length === n) {
+          small.style.color = '#28a745';
+          small.textContent = `✓ Valid: ${n} answer keys entered`;
+        } else {
+          small.style.color = '#666';
+          small.textContent = `Format: Enter ${n} digits 1-4 for each question. Example: "1423" means Q1=ক, Q2=ঘ, Q3=খ, Q4=গ`;
+        }
+      });
+      
+      // Validate form submission
+      form.addEventListener('submit', (e) => {
+        const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        const answerValue = correctAnswersInput.value.trim();
+        
+        if (answerValue && answerValue.length !== n) {
+          e.preventDefault();
+          alert(`Please enter exactly ${n} answer keys (digits 1-4) or leave the field empty.`);
+          correctAnswersInput.focus();
+          return false;
+        }
+        
+        if (answerValue && !/^[1-4]+$/.test(answerValue)) {
+          e.preventDefault();
+          alert('Answer keys must only contain digits 1-4.');
+          correctAnswersInput.focus();
+          return false;
+        }
+      });
+      
+      // Update placeholder when count changes
+      countEl.addEventListener('change', updateCorrectAnswersPlaceholder);
+      
       // initialize
       makeBtn.click();
     </script>

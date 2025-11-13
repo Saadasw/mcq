@@ -3,11 +3,14 @@
 \usepackage{amsmath, amssymb}
 \usepackage{polyglossia}
 \usepackage{enumitem}
-\usepackage[margin=0.6in]{geometry}
+\usepackage{multicol} % For multi-column layout
+\usepackage[paperwidth=105mm,paperheight=148mm,margin=0.2in]{geometry}  % Half width of A5 landscape for larger text
 \setmainlanguage{bengali}
-\newfontfamily\bengalifont[Script=Bengali]{Nirmala UI}
+\newfontfamily\bengalifont[Script=Bengali]{Noto Sans Bengali}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{0pt}
+\setlength{\parskip}{0.2em}  % Slight spacing for readability
+% Make text larger for better readability
+\AtBeginDocument{\fontsize{20}{24}\selectfont}
 
 % Custom enumerate for Bengali letters (if needed)
 \newlist{benglienum}{enumerate}{1}

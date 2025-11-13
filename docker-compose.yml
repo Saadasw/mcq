@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  mcq-app:
+    build: .
+    container_name: mcq-app
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist generated PDFs, answers, and sessions
+      - ./web/generated:/app/web/generated
+      - ./web/answers:/app/web/answers
+      - ./web/sessions:/app/web/sessions
+      - ./web/answer_keys:/app/web/answer_keys
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+

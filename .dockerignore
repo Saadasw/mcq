@@ -1,0 +1,50 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build outputs (keep structure, but not files)
+out/*.aux
+out/*.log
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Test files
+test*.tex
+temp*.tex
+temp*.pdf
+
+# Generated PDFs (will be regenerated in container)
+web/generated/**/*.pdf
+*.pdf
+
+# Windows specific
+*.ps1
+
+# Git
+.git/
+.gitignore
+
