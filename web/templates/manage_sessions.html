@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manage Sessions - MCQ Application</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .session-manager {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .session-item {
+        background: #f9f9f9;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .session-info {
+        flex: 1;
+        min-width: 200px;
+      }
+      .session-info h3 {
+        margin: 0 0 10px 0;
+        color: #333;
+      }
+      .session-info p {
+        margin: 5px 0;
+        color: #666;
+        font-size: 14px;
+      }
+      .session-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .btn-view {
+        background: #007bff;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn-view:hover {
+        background: #0056b3;
+      }
+      .btn-delete {
+        background: #dc3545;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .btn-delete:hover {
+        background: #c82333;
+      }
+      .btn-delete-all {
+        background: #dc3545;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-top: 20px;
+      }
+      .btn-delete-all:hover {
+        background: #c82333;
+      }
+      .stats {
+        background: #e9ecef;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .stats h2 {
+        margin-top: 0;
+      }
+      .stats p {
+        margin: 5px 0;
+        font-size: 16px;
+      }
+      .no-sessions {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+      .confirm-dialog {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        max-width: 400px;
+        width: 90%;
+      }
+      .confirm-dialog h3 {
+        margin-top: 0;
+      }
+      .confirm-dialog p {
+        margin: 15px 0;
+      }
+      .confirm-dialog .buttons {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+      .overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+      }
+      .size-badge {
+        background: #6c757d;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      .message {
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        display: none;
+      }
+      .message.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .message.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="session-manager">
+      <h1>Manage Sessions</h1>
+      
+      <div id="message" class="message"></div>
+      
+      <div class="stats">
+        <h2>Statistics</h2>
+        <p><strong>Total Sessions:</strong> {{ total_sessions }}</p>
+        <p><strong>Total Size:</strong> {{ total_size }}</p>
+        <p><strong>Total Questions:</strong> {{ total_questions }}</p>
+      </div>
+      
+      <div style="margin-bottom: 20px;">
+        <a href="/" class="btn-view" style="margin-right: 10px;">Back to Input</a>
+        <a href="/sessions" class="btn-view">View All Sessions</a>
+        {% if total_sessions > 0 %}
+        <button class="btn-delete-all" onclick="confirmDeleteAll()">Delete All Sessions</button>
+        {% endif %}
+      </div>
+      
+      {% if sessions %}
+        <h2>All Sessions ({{ sessions|length }})</h2>
+        {% for session in sessions %}
+          <div class="session-item">
+            <div class="session-info">
+              <h3>{{ session.session_id }}</h3>
+              <p><strong>Questions:</strong> {{ session.question_count }}</p>
+              <p><strong>Size:</strong> <span class="size-badge">{{ session.size }}</span></p>
+              <p><strong>Created:</strong> {{ session.created_date }}</p>
+            </div>
+            <div class="session-actions">
+              <a href="/view/{{ session.session_id }}" class="btn-view">View</a>
+              <button class="btn-delete" onclick="confirmDelete('{{ session.session_id }}', '{{ session.question_count }}', '{{ session.size }}')">
+                Delete
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="no-sessions">
+          <h2>No Sessions Found</h2>
+          <p>No sessions have been created yet. <a href="/">Create a new session</a> to get started.</p>
+        </div>
+      {% endif %}
+    </div>
+    
+    <!-- Confirmation Dialog -->
+    <div id="overlay" class="overlay" onclick="closeDialog()"></div>
+    <div id="confirmDialog" class="confirm-dialog">
+      <h3 id="dialogTitle">Confirm Delete</h3>
+      <p id="dialogMessage"></p>
+      <div class="buttons">
+        <button class="btn-view" onclick="closeDialog()" style="background: #6c757d;">Cancel</button>
+        <button class="btn-delete" id="confirmButton" onclick="executeDelete()">Delete</button>
+      </div>
+    </div>
+    
+    <script>
+      let sessionToDelete = null;
+      let deleteAll = false;
+      
+      function confirmDelete(sessionId, questionCount, size) {
+        sessionToDelete = sessionId;
+        deleteAll = false;
+        document.getElementById('dialogTitle').textContent = 'Confirm Delete Session';
+        document.getElementById('dialogMessage').textContent = 
+          `Are you sure you want to delete session "${sessionId}"?\n\n` +
+          `Questions: ${questionCount}\n` +
+          `Size: ${size}\n\n` +
+          `This action cannot be undone.`;
+        document.getElementById('confirmButton').textContent = 'Delete';
+        showDialog();
+      }
+      
+      function confirmDeleteAll() {
+        deleteAll = true;
+        sessionToDelete = null;
+        document.getElementById('dialogTitle').textContent = 'Confirm Delete All Sessions';
+        document.getElementById('dialogMessage').textContent = 
+          `Are you sure you want to delete ALL sessions?\n\n` +
+          `This will delete all generated PDFs and session data.\n` +
+          `This action cannot be undone.`;
+        document.getElementById('confirmButton').textContent = 'Delete All';
+        showDialog();
+      }
+      
+      function showDialog() {
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('confirmDialog').style.display = 'block';
+      }
+      
+      function closeDialog() {
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('confirmDialog').style.display = 'none';
+        sessionToDelete = null;
+        deleteAll = false;
+      }
+      
+      function executeDelete() {
+        closeDialog();
+        
+        let url;
+        if (deleteAll) {
+          url = '/delete-all-sessions';
+        } else {
+          url = `/delete-session/${sessionToDelete}`;
+        }
+        
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            showMessage('Session deleted successfully!', 'success');
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          } else {
+            showMessage('Error: ' + (data.error || 'Failed to delete session'), 'error');
+          }
+        })
+        .catch(error => {
+          showMessage('Error: ' + error.message, 'error');
+        });
+      }
+      
+      function showMessage(message, type) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.textContent = message;
+        messageDiv.className = 'message ' + type;
+        messageDiv.style.display = 'block';
+        
+        setTimeout(() => {
+          messageDiv.style.display = 'none';
+        }, 5000);
+      }
+      
+      // Check for URL parameters (for success messages)
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('deleted') === 'true') {
+        showMessage('Session deleted successfully!', 'success');
+      }
+      if (urlParams.get('error')) {
+        showMessage('Error: ' + urlParams.get('error'), 'error');
+      }
+    </script>
+  </body>
+</html>
+
