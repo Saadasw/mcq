@@ -597,6 +597,157 @@ def save_answers():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.get("/marks")
+def marks_list():
+    """List all sessions that have student submissions"""
+    sessions_with_marks = []
+
+    if ANSWERS_DIR.exists():
+        for answers_file in ANSWERS_DIR.glob("answers_*.csv"):
+            try:
+                session_id = answers_file.stem.replace("answers_", "")
+
+                # Read the answers file to get statistics
+                with open(answers_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
+
+                    if not rows:
+                        continue
+
+                    # Calculate statistics
+                    num_students = len(rows)
+                    total_questions = rows[0].get("Total", "0") if rows else "0"
+
+                    # Calculate average marks
+                    total_marks = 0
+                    for row in rows:
+                        marks = row.get("Marks", "0")
+                        try:
+                            total_marks += int(marks)
+                        except:
+                            pass
+
+                    avg_marks = total_marks / num_students if num_students > 0 else 0
+
+                    sessions_with_marks.append({
+                        "session_id": session_id,
+                        "num_students": num_students,
+                        "total_questions": total_questions,
+                        "avg_marks": f"{avg_marks:.2f}",
+                        "file_name": answers_file.name
+                    })
+
+            except Exception as e:
+                print(f"Error processing {answers_file.name}: {e}")
+                continue
+
+    # Sort by number of students (descending)
+    sessions_with_marks.sort(key=lambda x: x["num_students"], reverse=True)
+
+    return render_template("marks_list.html", sessions=sessions_with_marks)
+
+
+@app.get("/marks/<session_id>")
+def view_marks(session_id: str):
+    """View detailed marks for a specific session"""
+    answers_file = ANSWERS_DIR / f"answers_{session_id}.csv"
+
+    if not answers_file.exists():
+        return f"No marks found for session {session_id}", 404
+
+    # Read all student submissions
+    students = []
+    headers = []
+
+    try:
+        with open(answers_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            headers = reader.fieldnames
+
+            for row in reader:
+                student_id = row.get("Student_ID", "Unknown")
+                marks = row.get("Marks", "0")
+                total = row.get("Total", "0")
+                timestamp = row.get("Timestamp", "")
+
+                # Get all answer columns (Q1, Q2, Q3, ...)
+                answers = []
+                q_num = 1
+                while f"Q{q_num}" in row:
+                    answers.append(row.get(f"Q{q_num}", ""))
+                    q_num += 1
+
+                # Calculate percentage
+                try:
+                    percentage = (int(marks) / int(total) * 100) if int(total) > 0 else 0
+                except:
+                    percentage = 0
+
+                # Determine result
+                result = "Pass" if percentage >= 40 else "Fail"
+
+                students.append({
+                    "student_id": student_id,
+                    "marks": marks,
+                    "total": total,
+                    "percentage": f"{percentage:.1f}",
+                    "result": result,
+                    "timestamp": timestamp,
+                    "answers": answers,
+                    "num_questions": len(answers)
+                })
+
+        # Sort by marks (descending)
+        students.sort(key=lambda x: int(x["marks"]), reverse=True)
+
+        # Get answer key if available
+        answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
+        answer_key = None
+        if answer_key_file.exists():
+            with open(answer_key_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    answer_key = row.get("Answer_Key", "")
+                    break
+
+        # Convert answer key to Bengali options
+        answer_key_bengali = []
+        if answer_key:
+            option_map = {"1": "ক", "2": "খ", "3": "গ", "4": "ঘ"}
+            answer_key_bengali = [option_map.get(c, c) for c in answer_key]
+
+        # Calculate statistics
+        total_students = len(students)
+        if total_students > 0:
+            avg_marks = sum(int(s["marks"]) for s in students) / total_students
+            passing_students = sum(1 for s in students if s["result"] == "Pass")
+            pass_rate = (passing_students / total_students) * 100
+        else:
+            avg_marks = 0
+            passing_students = 0
+            pass_rate = 0
+
+        stats = {
+            "total_students": total_students,
+            "avg_marks": f"{avg_marks:.2f}",
+            "passing_students": passing_students,
+            "pass_rate": f"{pass_rate:.1f}",
+            "total_questions": students[0]["total"] if students else "0"
+        }
+
+        return render_template(
+            "marks_detail.html",
+            session_id=session_id,
+            students=students,
+            stats=stats,
+            answer_key=answer_key_bengali
+        )
+
+    except Exception as e:
+        return f"Error reading marks: {e}", 500
+
+
 @app.route("/health")
 def health_check():
     """Health check endpoint for deployment services"""

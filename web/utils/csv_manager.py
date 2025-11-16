@@ -158,6 +158,7 @@ class CSVManager:
         (self.data_dir / "audit").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "backups" / "daily").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "backups" / "before_write").mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "backups" / "before_migration").mkdir(parents=True, exist_ok=True)
 
         # Create schema version file
         version_file = self.data_dir / "schema_version.txt"
