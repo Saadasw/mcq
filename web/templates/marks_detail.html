@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session Marks - {{ session_id }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .marks-container {
+        max-width: 1400px;
+        margin: 20px auto;
+        padding: 20px;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+      }
+
+      .header h1 {
+        margin: 0 0 10px 0;
+      }
+
+      .session-info {
+        font-size: 14px;
+        opacity: 0.9;
+        margin: 5px 0;
+        font-family: monospace;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+      }
+
+      .stat-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        text-align: center;
+      }
+
+      .stat-card .value {
+        font-size: 32px;
+        font-weight: bold;
+        color: #667eea;
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .stat-card .label {
+        font-size: 14px;
+        color: #666;
+      }
+
+      .answer-key-section {
+        background: #fff3cd;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 2px solid #ffc107;
+      }
+
+      .answer-key-section h3 {
+        margin: 0 0 10px 0;
+        color: #856404;
+      }
+
+      .answer-key {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .answer-item {
+        background: white;
+        padding: 8px 12px;
+        border-radius: 5px;
+        font-weight: bold;
+        border: 1px solid #ffc107;
+      }
+
+      .table-container {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead {
+        background: #667eea;
+        color: white;
+      }
+
+      th, td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #e0e0e0;
+      }
+
+      th {
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      tbody tr:hover {
+        background: #f5f5f5;
+      }
+
+      .rank {
+        width: 50px;
+        text-align: center;
+        font-weight: bold;
+        color: #667eea;
+      }
+
+      .student-id {
+        font-family: monospace;
+        font-weight: 500;
+      }
+
+      .marks {
+        font-size: 18px;
+        font-weight: bold;
+      }
+
+      .percentage {
+        font-size: 14px;
+        color: #666;
+      }
+
+      .result-pass {
+        color: #28a745;
+        font-weight: bold;
+      }
+
+      .result-fail {
+        color: #dc3545;
+        font-weight: bold;
+      }
+
+      .timestamp {
+        font-size: 12px;
+        color: #999;
+      }
+
+      .answers-cell {
+        font-family: monospace;
+        font-size: 14px;
+      }
+
+      .answer-correct {
+        color: #28a745;
+        font-weight: bold;
+      }
+
+      .answer-wrong {
+        color: #dc3545;
+      }
+
+      .answer-separator {
+        color: #ccc;
+        margin: 0 3px;
+      }
+
+      .nav-links {
+        text-align: center;
+        margin: 30px 0;
+      }
+
+      .nav-links a, .nav-links button {
+        display: inline-block;
+        margin: 0 10px;
+        padding: 10px 20px;
+        background: #f0f0f0;
+        color: #333;
+        text-decoration: none;
+        border-radius: 5px;
+        border: none;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+
+      .nav-links a:hover, .nav-links button:hover {
+        background: #e0e0e0;
+      }
+
+      .export-button {
+        background: #28a745 !important;
+        color: white !important;
+      }
+
+      .export-button:hover {
+        background: #218838 !important;
+      }
+
+      .top-performer {
+        background: #fff9e6 !important;
+      }
+
+      .top-performer .rank::before {
+        content: "🏆 ";
+      }
+
+      @media (max-width: 768px) {
+        .marks-container {
+          padding: 10px;
+        }
+
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        th, td {
+          padding: 8px 5px;
+          font-size: 12px;
+        }
+
+        .answer-key {
+          font-size: 12px;
+        }
+
+        .answers-cell {
+          font-size: 11px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="marks-container">
+      <div class="header">
+        <h1>📊 Exam Results</h1>
+        <div class="session-info">Session: {{ session_id }}</div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="value">{{ stats.total_students }}</span>
+          <span class="label">Total Students</span>
+        </div>
+
+        <div class="stat-card">
+          <span class="value">{{ stats.avg_marks }}/{{ stats.total_questions }}</span>
+          <span class="label">Average Marks</span>
+        </div>
+
+        <div class="stat-card">
+          <span class="value">{{ stats.passing_students }}</span>
+          <span class="label">Students Passed</span>
+        </div>
+
+        <div class="stat-card">
+          <span class="value">{{ stats.pass_rate }}%</span>
+          <span class="label">Pass Rate</span>
+        </div>
+      </div>
+
+      <!-- Answer Key -->
+      {% if answer_key %}
+      <div class="answer-key-section">
+        <h3>🔑 Answer Key</h3>
+        <div class="answer-key">
+          {% for i, ans in enumerate(answer_key) %}
+            <div class="answer-item">Q{{ i + 1 }}: {{ ans }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Student Marks Table -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th class="rank">Rank</th>
+              <th>Student ID</th>
+              <th>Marks</th>
+              <th>Percentage</th>
+              <th>Result</th>
+              <th>Answers</th>
+              <th>Submitted At</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for student in students %}
+            <tr {% if loop.index <= 3 %}class="top-performer"{% endif %}>
+              <td class="rank">{{ loop.index }}</td>
+              <td class="student-id">{{ student.student_id }}</td>
+              <td class="marks">{{ student.marks }}/{{ student.total }}</td>
+              <td class="percentage">{{ student.percentage }}%</td>
+              <td class="{% if student.result == 'Pass' %}result-pass{% else %}result-fail{% endif %}">
+                {{ student.result }}
+              </td>
+              <td class="answers-cell">
+                {% if answer_key %}
+                  {% for ans in student.answers %}
+                    <span class="{% if ans == answer_key[loop.index0] %}answer-correct{% else %}answer-wrong{% endif %}">
+                      {{ ans }}
+                    </span>
+                    {% if not loop.last %}<span class="answer-separator">|</span>{% endif %}
+                  {% endfor %}
+                {% else %}
+                  {{ student.answers | join(' | ') }}
+                {% endif %}
+              </td>
+              <td class="timestamp">{{ student.timestamp }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Navigation -->
+      <div class="nav-links">
+        <a href="/marks">← Back to Sessions</a>
+        <a href="/view/{{ session_id }}">View Questions</a>
+        <button class="export-button" onclick="exportToCSV()">📥 Export CSV</button>
+      </div>
+    </div>
+
+    <script>
+      function exportToCSV() {
+        // Export table to CSV
+        const table = document.querySelector('table');
+        let csv = [];
+
+        // Get headers
+        const headers = Array.from(table.querySelectorAll('thead th'))
+          .map(th => th.textContent.trim());
+        csv.push(headers.join(','));
+
+        // Get rows
+        const rows = Array.from(table.querySelectorAll('tbody tr'));
+        rows.forEach(row => {
+          const cells = Array.from(row.querySelectorAll('td'))
+            .map(td => {
+              let text = td.textContent.trim();
+              // Escape commas and quotes
+              if (text.includes(',') || text.includes('"')) {
+                text = '"' + text.replace(/"/g, '""') + '"';
+              }
+              return text;
+            });
+          csv.push(cells.join(','));
+        });
+
+        // Create download
+        const csvContent = csv.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'marks_{{ session_id }}.csv');
+        link.style.visibility = 'hidden';
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    </script>
+  </body>
+</html>
