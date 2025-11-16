@@ -73,11 +73,9 @@ Student_ID,Session_ID,Timestamp,Marks,Total,Q1,Q2,Q3,...
 ```
 web/data/
 ├── schema_version.txt              # Current schema version (e.g., "2.0")
-├── migrations/                     # Migration scripts
-│   ├── v1_to_v2.py
-│   └── v2_to_v3.py
 ├── backups/                        # Automatic backups
 │   ├── daily/
+│   ├── before_write/
 │   └── before_migration/
 ├── core/                           # Core entity files
 │   ├── sessions.csv               # All exam sessions
@@ -90,7 +88,15 @@ web/data/
 │   └── submissions.csv            # Submission metadata
 └── audit/                          # Audit logs
     └── audit_log.csv              # All changes
+
+web/utils/                          # Utility scripts (version controlled)
+├── csv_manager.py                  # CSV management library
+├── migrate_to_v2.py               # Migration script: v1 → v2
+├── validate_csv.py                # Data validation tool
+└── csv_usage_examples.py          # Usage examples
 ```
+
+**Note:** Migration scripts are in `web/utils/` (version controlled), while migration backups go in `web/data/backups/before_migration/` (data directory).
 
 ---
 
