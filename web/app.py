@@ -6,6 +6,7 @@ import tempfile
 import time
 import csv
 import hashlib
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -13,11 +14,20 @@ import uuid
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify
 
-# Import CSV v2.0 manager
-from utils.csv_manager import CSVManager, CSVValidationError
-
-
+# Add web directory to Python path for utils import
 APP_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(APP_ROOT))
+
+# Import CSV v2.0 manager
+try:
+    from utils.csv_manager import CSVManager, CSVValidationError
+except ImportError:
+    # Fallback: CSV manager not available, will use legacy mode
+    CSVManager = None
+    CSVValidationError = Exception
+    print("WARNING: CSV v2.0 manager not available, using legacy mode")
+
+
 REPO_ROOT = APP_ROOT.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 SNIPPET_TEMPLATE = (TEMPLATES_DIR / "snippet_template.tex").read_text(encoding="utf-8")
@@ -28,7 +38,10 @@ DATA_DIR = APP_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 # Initialize CSV Manager (v2.0 system with file locking)
-csv_manager = CSVManager(DATA_DIR, auto_backup=True)
+if CSVManager:
+    csv_manager = CSVManager(DATA_DIR, auto_backup=True)
+else:
+    csv_manager = None
 
 # Legacy v1.0 directories (kept for backward compatibility)
 ANSWERS_DIR = APP_ROOT / "answers"
@@ -152,51 +165,52 @@ def compile_route():
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
     # Save session metadata using CSV v2.0
-    try:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if csv_manager:
+        try:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Create/update session record
-        session_record = {
-            "session_id": session_id,
-            "content_hash": content_hash,
-            "question_count": str(len(texts)),
-            "created_at": now,
-            "expires_at": "",  # No expiry
-            "status": "active",
-            "exam_duration_minutes": exam_duration,
-            "created_by": "system",
-            "version": "1.0",
-            # Extra fields (stored in CSV but not in schema)
-            "exam_name": exam_name,
-            "subject": subject,
-            "passing_percentage": passing_marks
-        }
+            # Create/update session record
+            session_record = {
+                "session_id": session_id,
+                "content_hash": content_hash,
+                "question_count": str(len(texts)),
+                "created_at": now,
+                "expires_at": "",  # No expiry
+                "status": "active",
+                "exam_duration_minutes": exam_duration,
+                "created_by": "system",
+                "version": "1.0",
+                # Extra fields (stored in CSV but not in schema)
+                "exam_name": exam_name,
+                "subject": subject,
+                "passing_percentage": passing_marks
+            }
 
-        # Write session (upsert - will update if exists)
-        csv_manager.write("sessions", [session_record], mode='append', validate=True)
+            # Write session (upsert - will update if exists)
+            csv_manager.write("sessions", [session_record], mode='append', validate=True)
 
-        # Register students in the database
-        if allowed_students:
-            student_records = []
-            for student_id in allowed_students:
-                student_records.append({
-                    "student_id": student_id,
-                    "name": "",  # Unknown at this point
-                    "email": "unknown@example.com",  # Placeholder
-                    "institution": "",
-                    "batch": "",
-                    "registration_date": now,
-                    "status": "active",
-                    "version": "1.0"
-                })
+            # Register students in the database
+            if allowed_students:
+                student_records = []
+                for student_id in allowed_students:
+                    student_records.append({
+                        "student_id": student_id,
+                        "name": "",  # Unknown at this point
+                        "email": "unknown@example.com",  # Placeholder
+                        "institution": "",
+                        "batch": "",
+                        "registration_date": now,
+                        "status": "active",
+                        "version": "1.0"
+                    })
 
-            # Write students (will skip duplicates based on student_id)
-            csv_manager.write("students", student_records, mode='append', validate=False)
+                # Write students (will skip duplicates based on student_id)
+                csv_manager.write("students", student_records, mode='append', validate=False)
 
-    except Exception as e:
-        print(f"Error saving to CSV v2.0: {e}")
-        # Fall back to legacy saving
-        pass
+        except Exception as e:
+            print(f"Error saving to CSV v2.0: {e}")
+            # Fall back to legacy saving
+            pass
 
     # Save correct answers if provided
     if correct_answers_str:
@@ -206,22 +220,23 @@ def compile_route():
             # Validate all digits are 1-4
             if all(c in '1234' for c in correct_answers_str):
                 # Save using CSV v2.0 - one row per question
-                try:
-                    answer_key_records = []
-                    for idx, correct_option in enumerate(correct_answers_str):
-                        answer_key_records.append({
-                            "answer_key_id": f"{session_id}_q{idx}",
-                            "session_id": session_id,
-                            "question_index": str(idx),
-                            "correct_option": correct_option,
-                            "marks": "1",  # 1 mark per question
-                            "created_at": now,
-                            "version": "1.0"
-                        })
+                if csv_manager:
+                    try:
+                        answer_key_records = []
+                        for idx, correct_option in enumerate(correct_answers_str):
+                            answer_key_records.append({
+                                "answer_key_id": f"{session_id}_q{idx}",
+                                "session_id": session_id,
+                                "question_index": str(idx),
+                                "correct_option": correct_option,
+                                "marks": "1",  # 1 mark per question
+                                "created_at": now,
+                                "version": "1.0"
+                            })
 
-                    csv_manager.write("answer_keys", answer_key_records, mode='append', validate=True)
-                except Exception as e:
-                    print(f"Error saving answer keys to v2.0: {e}")
+                        csv_manager.write("answer_keys", answer_key_records, mode='append', validate=True)
+                    except Exception as e:
+                        print(f"Error saving answer keys to v2.0: {e}")
             else:
                 print(f"Warning: Answer keys must be digits 1-4. Got: {correct_answers_str}")
         else:
@@ -561,6 +576,10 @@ def check_session():
 
 def get_allowed_students(session_id: str) -> list:
     """Get list of allowed student IDs for a session from CSV v2.0 database"""
+    # If csv_manager not available, allow all
+    if not csv_manager:
+        return ["ALL"]
+
     try:
         # Read all students from CSV v2.0
         all_students = csv_manager.read("students")
@@ -1003,6 +1022,10 @@ def manage_students(session_id: str):
 @app.post("/add-student/<session_id>")
 def add_student(session_id: str):
     """Add a student to the allowed list using CSV v2.0"""
+    # If csv_manager not available, return error
+    if not csv_manager:
+        return jsonify({"success": False, "error": "CSV v2.0 not available"}), 500
+
     try:
         data = request.get_json() or request.form
         new_student_id = data.get("student_id", "").strip()
@@ -1066,6 +1089,10 @@ def add_student(session_id: str):
 @app.post("/remove-student/<session_id>")
 def remove_student(session_id: str):
     """Remove a student from the allowed list using CSV v2.0 (set status to inactive)"""
+    # If csv_manager not available, return error
+    if not csv_manager:
+        return jsonify({"success": False, "error": "CSV v2.0 not available"}), 500
+
     try:
         data = request.get_json() or request.form
         student_id_to_remove = data.get("student_id", "").strip()
