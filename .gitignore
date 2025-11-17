@@ -32,8 +32,11 @@ web/generated/
 
 # CSV v2.0 data files (not structure)
 web/data/core/*.csv
+web/data/core/*.lock
 web/data/transactions/*.csv
+web/data/transactions/*.lock
 web/data/audit/*.csv
+web/data/audit/*.lock
 web/data/backups/
 
 # Legacy v1.0 data files
