@@ -3,13 +3,19 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MCQ Output</title>
+    <title>{{ exam_name }} - MCQ Exam</title>
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   </head>
   <body>
     <div class="container">
-      <h1 class="mobile-hide-on-scroll">MCQ Output</h1>
+      <h1 class="mobile-hide-on-scroll">{{ exam_name }}</h1>
+      <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <p style="margin: 5px 0;"><strong>Subject:</strong> {{ subject }}</p>
+        <p style="margin: 5px 0;"><strong>Duration:</strong> {{ duration_minutes }} minutes</p>
+        <p style="margin: 5px 0;"><strong>Passing Percentage:</strong> {{ passing_percentage }}%</p>
+        <p style="margin: 5px 0;"><strong>Total Questions:</strong> {{ num_questions }}</p>
+      </div>
       <div class="student-info mobile-compact">
         <div class="form-group">
           <label for="student_id_input"><strong>Student ID:</strong></label>
@@ -17,14 +23,13 @@
         </div>
         <div class="timer-section">
           <button id="start-timer-btn" class="button timer-button" style="background: #28a745; margin-top: 8px;">
-            Start Exam (25:00)
+            Start Exam ({{ '%02d:%02d' % (duration_minutes, 0) }})
           </button>
           <div id="timer-display" class="timer-display" style="display: none;">
-            <strong>Time Remaining: <span id="timer-text">25:00</span></strong>
+            <strong>Time Remaining: <span id="timer-text">{{ '%02d:%02d' % (duration_minutes, 0) }}</span></strong>
           </div>
         </div>
         <p class="mobile-hide"><strong>Session:</strong> {{ session_id }}</p>
-        <p><strong>Questions:</strong> {{ num_questions }}</p>
         <p class="share-link-desktop"><strong>Share:</strong> <input type="text" id="share-url" readonly value="{{ request.url }}" style="width: 100%; max-width: 500px; padding: 4px; font-size: 12px; margin-top: 4px;" onclick="this.select();" /></p>
       </div>
 
@@ -74,16 +79,17 @@
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       
       const sessionId = "{{ session_id }}";
+      const examDurationMinutes = {{ duration_minutes }};
       const messageEl = document.getElementById('message');
       const saveBtn = document.getElementById('save-answers');
       const studentIdInput = document.getElementById('student_id_input');
       const startTimerBtn = document.getElementById('start-timer-btn');
       const timerDisplay = document.getElementById('timer-display');
       const timerText = document.getElementById('timer-text');
-      
+
       // Timer state
       let timerInterval = null;
-      let timeRemaining = 25 * 60; // 25 minutes in seconds
+      let timeRemaining = examDurationMinutes * 60; // duration in seconds
       let examStarted = false;
       
       // LocalStorage keys

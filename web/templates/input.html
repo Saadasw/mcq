@@ -17,24 +17,80 @@
       </div>
 
       <form id="snippet-form" action="/compile" method="post">
-        <label for="count">Number of inputs</label>
-        <input id="count" type="number" min="1" max="40" value="4" />
-        <button id="make" type="button">Create inputs</button>
+        <!-- Exam Metadata Section -->
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="margin-top: 0;">📋 Exam Information</h3>
 
-        <div id="inputs" class="inputs"></div>
-        
+          <div class="form-group">
+            <label for="exam-name"><strong>Exam Name:</strong></label>
+            <input id="exam-name" name="exam_name" type="text"
+                   placeholder="e.g., Physics Mid-term 2024"
+                   style="width: 100%; max-width: 500px; padding: 8px; font-size: 16px; margin-top: 4px;" />
+          </div>
+
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="subject"><strong>Subject:</strong></label>
+            <input id="subject" name="subject" type="text"
+                   placeholder="e.g., Physics, Mathematics, Chemistry"
+                   style="width: 100%; max-width: 500px; padding: 8px; font-size: 16px; margin-top: 4px;" />
+          </div>
+
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="exam-duration"><strong>Exam Duration (minutes):</strong></label>
+            <input id="exam-duration" name="exam_duration" type="number"
+                   placeholder="25" value="25" min="5" max="180"
+                   style="width: 150px; padding: 8px; font-size: 16px; margin-top: 4px;" />
+            <small style="display: block; color: #666; margin-top: 4px;">How long students have to complete the exam</small>
+          </div>
+
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="passing-marks"><strong>Passing Percentage:</strong></label>
+            <input id="passing-marks" name="passing_marks" type="number"
+                   placeholder="40" value="40" min="0" max="100"
+                   style="width: 150px; padding: 8px; font-size: 16px; margin-top: 4px;" />
+            <small style="display: block; color: #666; margin-top: 4px;">Minimum percentage to pass (default: 40%)</small>
+          </div>
+        </div>
+
+        <!-- Student Whitelist Section -->
+        <div style="background: #e7f3ff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #007bff;">
+          <h3 style="margin-top: 0;">👥 Allowed Students (Optional)</h3>
+
+          <div class="form-group">
+            <label for="allowed-students"><strong>Student IDs (comma-separated or one per line):</strong></label>
+            <textarea id="allowed-students" name="allowed_students"
+                      rows="4"
+                      placeholder="Leave empty to allow all students, or enter specific IDs:&#10;STU001, STU002, STU003&#10;or&#10;STU001&#10;STU002&#10;STU003"
+                      style="width: 100%; max-width: 500px; padding: 8px; font-size: 14px; margin-top: 4px; font-family: monospace;"></textarea>
+            <small style="display: block; color: #666; margin-top: 4px;">
+              If specified, only these students can take the exam. Leave empty to allow anyone.
+            </small>
+          </div>
+        </div>
+
+        <!-- Questions Section -->
+        <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="margin-top: 0;">📝 Questions</h3>
+
+          <label for="count">Number of questions:</label>
+          <input id="count" type="number" min="1" max="40" value="4" />
+          <button id="make" type="button">Create Question Inputs</button>
+
+          <div id="inputs" class="inputs"></div>
+        </div>
+
         <div class="form-group" style="margin-top: 20px;">
           <label for="correct-answers"><strong>Correct Answers (e.g., 142 means Q1=option1, Q2=option4, Q3=option2):</strong></label>
-          <input id="correct-answers" name="correct_answers" type="text" 
-                 placeholder="Enter answer keys like: 1423" 
-                 pattern="[1-4]+" 
-                 style="width: 100%; max-width: 500px; padding: 8px; font-size: 16px; margin-top: 8px;" 
+          <input id="correct-answers" name="correct_answers" type="text"
+                 placeholder="Enter answer keys like: 1423"
+                 pattern="[1-4]+"
+                 style="width: 100%; max-width: 500px; padding: 8px; font-size: 16px; margin-top: 8px;"
                  title="Enter digits 1-4 only (1=ক, 2=খ, 3=গ, 4=ঘ)" />
           <small id="correct-answers-help" style="display: block; color: #666; margin-top: 4px;">
             Format: Enter digits 1-4 for each question. Example: "1423" means Q1=ক, Q2=ঘ, Q3=খ, Q4=গ
           </small>
         </div>
-        
+
         <div class="actions">
           <button type="submit">Compile & Show Output</button>
         </div>

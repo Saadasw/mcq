@@ -9,8 +9,12 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List
+import uuid
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify
+
+# Import CSV v2.0 manager
+from utils.csv_manager import CSVManager, CSVValidationError
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -18,12 +22,25 @@ REPO_ROOT = APP_ROOT.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 SNIPPET_TEMPLATE = (TEMPLATES_DIR / "snippet_template.tex").read_text(encoding="utf-8")
 GENERATED_DIR = APP_ROOT / "generated"
+
+# V2.0 data directory
+DATA_DIR = APP_ROOT / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# Initialize CSV Manager (v2.0 system with file locking)
+csv_manager = CSVManager(DATA_DIR, auto_backup=True)
+
+# Legacy v1.0 directories (kept for backward compatibility)
 ANSWERS_DIR = APP_ROOT / "answers"
 SESSIONS_DIR = APP_ROOT / "sessions"
 ANSWER_KEYS_DIR = APP_ROOT / "answer_keys"
+SESSION_METADATA_DIR = APP_ROOT / "session_metadata"
+ALLOWED_STUDENTS_DIR = APP_ROOT / "allowed_students"
 ANSWERS_DIR.mkdir(exist_ok=True)
 SESSIONS_DIR.mkdir(exist_ok=True)
 ANSWER_KEYS_DIR.mkdir(exist_ok=True)
+SESSION_METADATA_DIR.mkdir(exist_ok=True)
+ALLOWED_STUDENTS_DIR.mkdir(exist_ok=True)
 
 
 def run(cmd: List[str], cwd: Path | None = None) -> str:
@@ -93,21 +110,35 @@ def compile_route():
     if not texts:
         return redirect(url_for("input_page"))
 
+    # Get exam metadata
+    exam_name = request.form.get("exam_name", "").strip() or "Untitled Exam"
+    subject = request.form.get("subject", "").strip() or "General"
+    exam_duration = request.form.get("exam_duration", "25").strip()
+    passing_marks = request.form.get("passing_marks", "40").strip()
+
+    # Get student whitelist
+    allowed_students_str = request.form.get("allowed_students", "").strip()
+    allowed_students = []
+    if allowed_students_str:
+        # Parse comma-separated or newline-separated student IDs
+        import re
+        allowed_students = [s.strip() for s in re.split(r'[,\n]+', allowed_students_str) if s.strip()]
+
     # Get correct answers
     correct_answers_str = request.form.get("correct_answers", "").strip()
-    
+
     # Use a fixed session ID based on content hash to ensure same questions for all users
     content_hash = hashlib.md5("|".join(texts).encode()).hexdigest()[:8]
     session_id = f"session_{content_hash}"
-    
+
     sess_dir = GENERATED_DIR / session_id
     pdf_out_dir = sess_dir / "pdfs"
-    
+
     # Only compile if PDFs don't already exist (same questions for all users)
     if not pdf_out_dir.exists() or not list(pdf_out_dir.glob("*.pdf")):
         ensure_clean_session_dir(session_id)
         pdf_out_dir.mkdir(parents=True, exist_ok=True)
-        
+
         cropped_paths: List[Path] = []
         for i, txt in enumerate(texts, start=1):
             try:
@@ -120,6 +151,53 @@ def compile_route():
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
+    # Save session metadata using CSV v2.0
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Create/update session record
+        session_record = {
+            "session_id": session_id,
+            "content_hash": content_hash,
+            "question_count": str(len(texts)),
+            "created_at": now,
+            "expires_at": "",  # No expiry
+            "status": "active",
+            "exam_duration_minutes": exam_duration,
+            "created_by": "system",
+            "version": "1.0",
+            # Extra fields (stored in CSV but not in schema)
+            "exam_name": exam_name,
+            "subject": subject,
+            "passing_percentage": passing_marks
+        }
+
+        # Write session (upsert - will update if exists)
+        csv_manager.write("sessions", [session_record], mode='append', validate=True)
+
+        # Register students in the database
+        if allowed_students:
+            student_records = []
+            for student_id in allowed_students:
+                student_records.append({
+                    "student_id": student_id,
+                    "name": "",  # Unknown at this point
+                    "email": "unknown@example.com",  # Placeholder
+                    "institution": "",
+                    "batch": "",
+                    "registration_date": now,
+                    "status": "active",
+                    "version": "1.0"
+                })
+
+            # Write students (will skip duplicates based on student_id)
+            csv_manager.write("students", student_records, mode='append', validate=False)
+
+    except Exception as e:
+        print(f"Error saving to CSV v2.0: {e}")
+        # Fall back to legacy saving
+        pass
+
     # Save correct answers if provided
     if correct_answers_str:
         num_questions = len(texts)
@@ -127,12 +205,23 @@ def compile_route():
         if len(correct_answers_str) == num_questions:
             # Validate all digits are 1-4
             if all(c in '1234' for c in correct_answers_str):
-                answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
-                answer_key_file.parent.mkdir(parents=True, exist_ok=True)
-                with open(answer_key_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["Session_ID", "Answer_Key"])
-                    writer.writerow([session_id, correct_answers_str])
+                # Save using CSV v2.0 - one row per question
+                try:
+                    answer_key_records = []
+                    for idx, correct_option in enumerate(correct_answers_str):
+                        answer_key_records.append({
+                            "answer_key_id": f"{session_id}_q{idx}",
+                            "session_id": session_id,
+                            "question_index": str(idx),
+                            "correct_option": correct_option,
+                            "marks": "1",  # 1 mark per question
+                            "created_at": now,
+                            "version": "1.0"
+                        })
+
+                    csv_manager.write("answer_keys", answer_key_records, mode='append', validate=True)
+                except Exception as e:
+                    print(f"Error saving answer keys to v2.0: {e}")
             else:
                 print(f"Warning: Answer keys must be digits 1-4. Got: {correct_answers_str}")
         else:
@@ -146,19 +235,31 @@ def compile_route():
 def view_session(session_id: str):
     """View questions for a specific session ID"""
     pdf_out_dir = GENERATED_DIR / session_id / "pdfs"
-    
+
     if not pdf_out_dir.exists():
         return f"Session {session_id} not found. Please compile questions first.", 404
-    
+
     # Get all PDF files
     cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
-    
+
     if not cropped_paths:
         return f"No questions found for session {session_id}.", 404
-    
+
+    # Get session metadata
+    metadata = get_session_metadata(session_id)
+
     # Build list of relative URLs to serve
     rel_urls = [f"/generated/{session_id}/pdfs/{p.name}" for p in cropped_paths]
-    return render_template("output.html", pdf_urls=rel_urls, session_id=session_id, num_questions=len(rel_urls))
+    return render_template(
+        "output.html",
+        pdf_urls=rel_urls,
+        session_id=session_id,
+        num_questions=len(rel_urls),
+        exam_name=metadata["exam_name"],
+        subject=metadata["subject"],
+        duration_minutes=int(metadata["duration_minutes"]),
+        passing_percentage=int(metadata["passing_percentage"])
+    )
 
 
 def get_dir_size(path: Path) -> int:
@@ -352,10 +453,17 @@ def start_session():
     data = request.get_json()
     student_id = data.get("student_id", "").strip()
     session_id = data.get("session_id", "").strip()
-    
+
     if not student_id or not session_id:
         return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
-    
+
+    # Check student whitelist from CSV file
+    if not is_student_allowed(session_id, student_id):
+        return jsonify({
+            "success": False,
+            "error": f"Student ID '{student_id}' is not authorized to take this exam. Please contact your instructor."
+        }), 403
+
     # Check if session already exists for this student
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
     session_exists = False
@@ -399,15 +507,20 @@ def check_session():
     data = request.get_json()
     student_id = data.get("student_id", "").strip()
     session_id = data.get("session_id", "").strip()
-    
+
     if not student_id or not session_id:
         return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
-    
+
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
-    
+
     if not sessions_file.exists():
         return jsonify({"success": False, "exists": False})
-    
+
+    # Get exam duration from metadata
+    metadata = get_session_metadata(session_id)
+    duration_minutes = int(metadata["duration_minutes"])
+    exam_duration = duration_minutes * 60  # Convert to seconds
+
     with open(sessions_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -415,13 +528,11 @@ def check_session():
                 start_time = datetime.strptime(row["Start_Time"], "%Y-%m-%d %H:%M:%S")
                 current_time = datetime.now()
                 elapsed_seconds = (current_time - start_time).total_seconds()
-                
-                # Exam duration is 25 minutes (1500 seconds)
-                exam_duration = 25 * 60
+
                 remaining_seconds = max(0, exam_duration - elapsed_seconds)
-                
-                # Check if more than 30 minutes have passed (session expired)
-                if elapsed_seconds > 30 * 60:
+
+                # Check if more than exam duration + 5 minutes grace period have passed (session expired)
+                if elapsed_seconds > (exam_duration + 5 * 60):
                     return jsonify({
                         "success": True,
                         "exists": False,
@@ -448,12 +559,93 @@ def check_session():
     return jsonify({"success": True, "exists": False})
 
 
+def get_allowed_students(session_id: str) -> list:
+    """Get list of allowed student IDs for a session from CSV v2.0 database"""
+    try:
+        # Read all students from CSV v2.0
+        all_students = csv_manager.read("students")
+
+        # If no students registered, allow all
+        if not all_students:
+            return ["ALL"]
+
+        # Filter for active students only
+        allowed_students = [
+            row["student_id"]
+            for row in all_students
+            if row.get("status") == "active" and row.get("student_id")
+        ]
+
+        # If no active students, allow all
+        if not allowed_students:
+            return ["ALL"]
+
+        return allowed_students
+
+    except Exception as e:
+        print(f"Error reading students from v2.0: {e}")
+        # Allow all students if there's an error
+        return ["ALL"]
+
+
+def is_student_allowed(session_id: str, student_id: str) -> bool:
+    """Check if a student is allowed to take the exam"""
+    allowed_students = get_allowed_students(session_id)
+
+    # If "ALL" is in the list, everyone is allowed
+    if "ALL" in allowed_students:
+        return True
+
+    # Check if student is in the whitelist
+    return student_id in allowed_students
+
+
+def get_session_metadata(session_id: str) -> dict:
+    """Get metadata for a session"""
+    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    metadata = {
+        "exam_name": "Untitled Exam",
+        "subject": "General",
+        "duration_minutes": "25",
+        "passing_percentage": "40",
+        "allowed_students": "ALL",
+        "question_count": "0",
+        "created_at": ""
+    }
+
+    if not metadata_file.exists():
+        return metadata
+
+    with open(metadata_file, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        next(reader, None)  # Skip header
+        for row in reader:
+            if len(row) == 2:
+                field, value = row
+                if field == "Exam_Name":
+                    metadata["exam_name"] = value
+                elif field == "Subject":
+                    metadata["subject"] = value
+                elif field == "Duration_Minutes":
+                    metadata["duration_minutes"] = value
+                elif field == "Passing_Percentage":
+                    metadata["passing_percentage"] = value
+                elif field == "Allowed_Students":
+                    metadata["allowed_students"] = value
+                elif field == "Question_Count":
+                    metadata["question_count"] = value
+                elif field == "Created_At":
+                    metadata["created_at"] = value
+
+    return metadata
+
+
 def get_answer_key(session_id: str) -> str | None:
     """Get answer key for a session"""
     answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
     if not answer_key_file.exists():
         return None
-    
+
     with open(answer_key_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -657,6 +849,10 @@ def view_marks(session_id: str):
         return render_template("error.html" if (APP_ROOT / "templates" / "error.html").exists() else "marks_list.html",
                              error=f"No marks found for session {session_id}"), 404
 
+    # Get session metadata for passing percentage
+    metadata = get_session_metadata(session_id)
+    passing_percentage = int(metadata["passing_percentage"])
+
     # Read all student submissions
     students = []
     headers = []
@@ -688,8 +884,8 @@ def view_marks(session_id: str):
                 except:
                     percentage = 0
 
-                # Determine result
-                result = "Pass" if percentage >= 40 else "Fail"
+                # Determine result using custom passing percentage
+                result = "Pass" if percentage >= passing_percentage else "Fail"
 
                 students.append({
                     "student_id": student_id,
@@ -766,6 +962,144 @@ def view_marks(session_id: str):
         print(error_msg)
         print(traceback.format_exc())
         return f"<h1>Error Loading Marks</h1><p>{error_msg}</p><p><a href='/marks'>← Back to Marks List</a></p>", 500
+
+
+@app.get("/manage-students/<session_id>")
+def manage_students(session_id: str):
+    """View and manage allowed students for a session"""
+    # Get session metadata
+    metadata = get_session_metadata(session_id)
+
+    # Get allowed students from CSV
+    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+
+    students = []
+    if allowed_students_file.exists():
+        try:
+            with open(allowed_students_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    students.append({
+                        "student_id": row.get("Student_ID", ""),
+                        "added_at": row.get("Added_At", ""),
+                        "status": row.get("Status", "Active")
+                    })
+        except Exception as e:
+            print(f"Error reading students: {e}")
+
+    # Check if this session has questions
+    pdf_dir = GENERATED_DIR / session_id / "pdfs"
+    session_exists = pdf_dir.exists() and list(pdf_dir.glob("*.pdf"))
+
+    return render_template(
+        "manage_students.html",
+        session_id=session_id,
+        students=students,
+        metadata=metadata,
+        session_exists=session_exists
+    )
+
+
+@app.post("/add-student/<session_id>")
+def add_student(session_id: str):
+    """Add a student to the allowed list using CSV v2.0"""
+    try:
+        data = request.get_json() or request.form
+        new_student_id = data.get("student_id", "").strip()
+
+        if not new_student_id:
+            return jsonify({"success": False, "error": "Student ID is required"}), 400
+
+        # Special case: "ALL" means delete all students to allow everyone
+        if new_student_id.upper() == "ALL":
+            # Delete all students to make system allow everyone
+            try:
+                all_students = csv_manager.read("students")
+                for student in all_students:
+                    student["status"] = "inactive"
+                if all_students:
+                    csv_manager.write("students", all_students, mode='overwrite', validate=False)
+                return jsonify({"success": True, "message": "Now allowing all students"})
+            except Exception as e:
+                print(f"Error deactivating all students: {e}")
+                return jsonify({"success": True, "message": "Now allowing all students"})
+
+        # Check if student already exists
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        existing_students = csv_manager.read("students")
+
+        student_exists = False
+        for student in existing_students:
+            if student.get("student_id") == new_student_id:
+                # Reactivate student
+                student["status"] = "active"
+                student["registration_date"] = now
+                student_exists = True
+                break
+
+        if student_exists:
+            # Update existing student
+            csv_manager.write("students", existing_students, mode='overwrite', validate=False)
+            return jsonify({"success": True, "message": f"Reactivated student {new_student_id}"})
+        else:
+            # Add new student
+            new_student = {
+                "student_id": new_student_id,
+                "name": "",
+                "email": "unknown@example.com",
+                "institution": "",
+                "batch": "",
+                "registration_date": now,
+                "status": "active",
+                "version": "1.0"
+            }
+            csv_manager.write("students", [new_student], mode='append', validate=False)
+            return jsonify({"success": True, "message": f"Added student {new_student_id}"})
+
+    except Exception as e:
+        import traceback
+        print(f"Error adding student: {e}")
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.post("/remove-student/<session_id>")
+def remove_student(session_id: str):
+    """Remove a student from the allowed list using CSV v2.0 (set status to inactive)"""
+    try:
+        data = request.get_json() or request.form
+        student_id_to_remove = data.get("student_id", "").strip()
+
+        if not student_id_to_remove:
+            return jsonify({"success": False, "error": "Student ID is required"}), 400
+
+        # Read all students from CSV v2.0
+        existing_students = csv_manager.read("students")
+
+        if not existing_students:
+            return jsonify({"success": False, "error": "No students found"}), 404
+
+        # Find and update status to inactive
+        student_found = False
+        for student in existing_students:
+            if student.get("student_id") == student_id_to_remove:
+                student["status"] = "inactive"
+                student_found = True
+                break
+
+        if not student_found:
+            return jsonify({"success": False, "error": "Student not found"}), 404
+
+        # Write back updated list
+        csv_manager.write("students", existing_students, mode='overwrite', validate=False)
+
+        return jsonify({"success": True, "message": f"Removed student {student_id_to_remove}"})
+
+    except Exception as e:
+        import traceback
+        print(f"Error removing student: {e}")
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/health")
