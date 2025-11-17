@@ -654,7 +654,8 @@ def view_marks(session_id: str):
     answers_file = ANSWERS_DIR / f"answers_{session_id}.csv"
 
     if not answers_file.exists():
-        return f"No marks found for session {session_id}", 404
+        return render_template("error.html" if (APP_ROOT / "templates" / "error.html").exists() else "marks_list.html",
+                             error=f"No marks found for session {session_id}"), 404
 
     # Read all student submissions
     students = []
@@ -664,6 +665,9 @@ def view_marks(session_id: str):
         with open(answers_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             headers = reader.fieldnames
+
+            if not headers:
+                return f"Invalid CSV file for session {session_id}", 500
 
             for row in reader:
                 student_id = row.get("Student_ID", "Unknown")
@@ -698,31 +702,43 @@ def view_marks(session_id: str):
                     "num_questions": len(answers)
                 })
 
+        if not students:
+            return f"No student data found for session {session_id}. Students may not have submitted yet.", 200
+
         # Sort by marks (descending)
-        students.sort(key=lambda x: int(x["marks"]), reverse=True)
+        students.sort(key=lambda x: int(x.get("marks", 0)), reverse=True)
 
         # Get answer key if available
         answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
         answer_key = None
-        if answer_key_file.exists():
-            with open(answer_key_file, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    answer_key = row.get("Answer_Key", "")
-                    break
-
-        # Convert answer key to Bengali options
         answer_key_bengali = []
-        if answer_key:
-            option_map = {"1": "ক", "2": "খ", "3": "গ", "4": "ঘ"}
-            answer_key_bengali = [option_map.get(c, c) for c in answer_key]
+
+        if answer_key_file.exists():
+            try:
+                with open(answer_key_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        answer_key = row.get("Answer_Key", "")
+                        break
+
+                # Convert answer key to Bengali options
+                if answer_key:
+                    option_map = {"1": "ক", "2": "খ", "3": "গ", "4": "ঘ"}
+                    answer_key_bengali = [option_map.get(c, c) for c in answer_key]
+            except Exception as e:
+                print(f"Warning: Could not read answer key: {e}")
 
         # Calculate statistics
         total_students = len(students)
         if total_students > 0:
-            avg_marks = sum(int(s["marks"]) for s in students) / total_students
-            passing_students = sum(1 for s in students if s["result"] == "Pass")
-            pass_rate = (passing_students / total_students) * 100
+            try:
+                avg_marks = sum(int(s["marks"]) for s in students) / total_students
+                passing_students = sum(1 for s in students if s["result"] == "Pass")
+                pass_rate = (passing_students / total_students) * 100
+            except:
+                avg_marks = 0
+                passing_students = 0
+                pass_rate = 0
         else:
             avg_marks = 0
             passing_students = 0
@@ -745,7 +761,11 @@ def view_marks(session_id: str):
         )
 
     except Exception as e:
-        return f"Error reading marks: {e}", 500
+        import traceback
+        error_msg = f"Error reading marks for session {session_id}: {str(e)}"
+        print(error_msg)
+        print(traceback.format_exc())
+        return f"<h1>Error Loading Marks</h1><p>{error_msg}</p><p><a href='/marks'>← Back to Marks List</a></p>", 500
 
 
 @app.route("/health")
