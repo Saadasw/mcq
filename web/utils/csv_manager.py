@@ -1,18 +1,31 @@
 """
 CSV Management Utilities with Thread-Safe Operations
 Provides file locking, validation, backup, and CRUD operations for CSV files.
+Cross-platform compatible (Linux, macOS, Windows).
 """
 
 import csv
-import fcntl
 import hashlib
 import json
 import shutil
+import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 import tempfile
+
+# Platform-specific imports for file locking
+if sys.platform == 'win32':
+    import msvcrt  # Windows file locking
+    LOCK_AVAILABLE = True
+else:
+    try:
+        import fcntl  # Unix/Linux/macOS file locking
+        LOCK_AVAILABLE = True
+    except ImportError:
+        LOCK_AVAILABLE = False
+        print("Warning: File locking not available on this platform")
 
 
 class CSVValidationError(Exception):
@@ -167,18 +180,41 @@ class CSVManager:
 
     @contextmanager
     def _lock_file(self, file_path: Path, mode: str = 'r'):
-        """Context manager for file locking"""
+        """
+        Context manager for file locking (cross-platform)
+        Works on Linux, macOS, and Windows
+        """
+        if not LOCK_AVAILABLE:
+            # No locking available - proceed without lock (not thread-safe)
+            yield
+            return
+
         lock_file = file_path.parent / f".{file_path.name}.lock"
         lock_file.touch(exist_ok=True)
 
         with open(lock_file, 'w') as lock_handle:
             try:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if sys.platform == 'win32':
+                    # Windows file locking using msvcrt
+                    msvcrt.locking(lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    # Unix/Linux/macOS file locking using fcntl
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
                 yield
-            except IOError:
-                raise CSVLockError(f"Could not acquire lock for {file_path}")
+
+            except (IOError, OSError) as e:
+                raise CSVLockError(f"Could not acquire lock for {file_path}: {e}")
             finally:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                try:
+                    if sys.platform == 'win32':
+                        # Unlock on Windows
+                        msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        # Unlock on Unix/Linux/macOS
+                        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                except:
+                    pass  # Ignore unlock errors
 
     def _backup_file(self, file_path: Path, backup_type: str = "before_write"):
         """Create backup of CSV file"""
