@@ -24,6 +24,8 @@ ANSWER_KEYS_DIR = APP_ROOT / "answer_keys"
 ANSWERS_DIR.mkdir(exist_ok=True)
 SESSIONS_DIR.mkdir(exist_ok=True)
 ANSWER_KEYS_DIR.mkdir(exist_ok=True)
+SESSION_METADATA_DIR = APP_ROOT / "session_metadata"
+SESSION_METADATA_DIR.mkdir(exist_ok=True)
 
 
 def run(cmd: List[str], cwd: Path | None = None) -> str:
@@ -93,21 +95,35 @@ def compile_route():
     if not texts:
         return redirect(url_for("input_page"))
 
+    # Get exam metadata
+    exam_name = request.form.get("exam_name", "").strip() or "Untitled Exam"
+    subject = request.form.get("subject", "").strip() or "General"
+    exam_duration = request.form.get("exam_duration", "25").strip()
+    passing_marks = request.form.get("passing_marks", "40").strip()
+
+    # Get student whitelist
+    allowed_students_str = request.form.get("allowed_students", "").strip()
+    allowed_students = []
+    if allowed_students_str:
+        # Parse comma-separated or newline-separated student IDs
+        import re
+        allowed_students = [s.strip() for s in re.split(r'[,\n]+', allowed_students_str) if s.strip()]
+
     # Get correct answers
     correct_answers_str = request.form.get("correct_answers", "").strip()
-    
+
     # Use a fixed session ID based on content hash to ensure same questions for all users
     content_hash = hashlib.md5("|".join(texts).encode()).hexdigest()[:8]
     session_id = f"session_{content_hash}"
-    
+
     sess_dir = GENERATED_DIR / session_id
     pdf_out_dir = sess_dir / "pdfs"
-    
+
     # Only compile if PDFs don't already exist (same questions for all users)
     if not pdf_out_dir.exists() or not list(pdf_out_dir.glob("*.pdf")):
         ensure_clean_session_dir(session_id)
         pdf_out_dir.mkdir(parents=True, exist_ok=True)
-        
+
         cropped_paths: List[Path] = []
         for i, txt in enumerate(texts, start=1):
             try:
@@ -119,6 +135,21 @@ def compile_route():
     else:
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
+
+    # Save session metadata
+    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(metadata_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Field", "Value"])
+        writer.writerow(["Session_ID", session_id])
+        writer.writerow(["Exam_Name", exam_name])
+        writer.writerow(["Subject", subject])
+        writer.writerow(["Duration_Minutes", exam_duration])
+        writer.writerow(["Passing_Percentage", passing_marks])
+        writer.writerow(["Question_Count", len(texts)])
+        writer.writerow(["Created_At", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        writer.writerow(["Allowed_Students", ",".join(allowed_students) if allowed_students else "ALL"])
 
     # Save correct answers if provided
     if correct_answers_str:
@@ -146,19 +177,31 @@ def compile_route():
 def view_session(session_id: str):
     """View questions for a specific session ID"""
     pdf_out_dir = GENERATED_DIR / session_id / "pdfs"
-    
+
     if not pdf_out_dir.exists():
         return f"Session {session_id} not found. Please compile questions first.", 404
-    
+
     # Get all PDF files
     cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
-    
+
     if not cropped_paths:
         return f"No questions found for session {session_id}.", 404
-    
+
+    # Get session metadata
+    metadata = get_session_metadata(session_id)
+
     # Build list of relative URLs to serve
     rel_urls = [f"/generated/{session_id}/pdfs/{p.name}" for p in cropped_paths]
-    return render_template("output.html", pdf_urls=rel_urls, session_id=session_id, num_questions=len(rel_urls))
+    return render_template(
+        "output.html",
+        pdf_urls=rel_urls,
+        session_id=session_id,
+        num_questions=len(rel_urls),
+        exam_name=metadata["exam_name"],
+        subject=metadata["subject"],
+        duration_minutes=int(metadata["duration_minutes"]),
+        passing_percentage=int(metadata["passing_percentage"])
+    )
 
 
 def get_dir_size(path: Path) -> int:
@@ -352,10 +395,22 @@ def start_session():
     data = request.get_json()
     student_id = data.get("student_id", "").strip()
     session_id = data.get("session_id", "").strip()
-    
+
     if not student_id or not session_id:
         return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
-    
+
+    # Check student whitelist
+    metadata = get_session_metadata(session_id)
+    allowed_students = metadata["allowed_students"]
+
+    if allowed_students != "ALL":
+        allowed_list = [s.strip() for s in allowed_students.split(",") if s.strip()]
+        if student_id not in allowed_list:
+            return jsonify({
+                "success": False,
+                "error": f"Student ID '{student_id}' is not authorized to take this exam. Please contact your instructor."
+            }), 403
+
     # Check if session already exists for this student
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
     session_exists = False
@@ -399,15 +454,20 @@ def check_session():
     data = request.get_json()
     student_id = data.get("student_id", "").strip()
     session_id = data.get("session_id", "").strip()
-    
+
     if not student_id or not session_id:
         return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
-    
+
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
-    
+
     if not sessions_file.exists():
         return jsonify({"success": False, "exists": False})
-    
+
+    # Get exam duration from metadata
+    metadata = get_session_metadata(session_id)
+    duration_minutes = int(metadata["duration_minutes"])
+    exam_duration = duration_minutes * 60  # Convert to seconds
+
     with open(sessions_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -415,13 +475,11 @@ def check_session():
                 start_time = datetime.strptime(row["Start_Time"], "%Y-%m-%d %H:%M:%S")
                 current_time = datetime.now()
                 elapsed_seconds = (current_time - start_time).total_seconds()
-                
-                # Exam duration is 25 minutes (1500 seconds)
-                exam_duration = 25 * 60
+
                 remaining_seconds = max(0, exam_duration - elapsed_seconds)
-                
-                # Check if more than 30 minutes have passed (session expired)
-                if elapsed_seconds > 30 * 60:
+
+                # Check if more than exam duration + 5 minutes grace period have passed (session expired)
+                if elapsed_seconds > (exam_duration + 5 * 60):
                     return jsonify({
                         "success": True,
                         "exists": False,
@@ -448,12 +506,52 @@ def check_session():
     return jsonify({"success": True, "exists": False})
 
 
+def get_session_metadata(session_id: str) -> dict:
+    """Get metadata for a session"""
+    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    metadata = {
+        "exam_name": "Untitled Exam",
+        "subject": "General",
+        "duration_minutes": "25",
+        "passing_percentage": "40",
+        "allowed_students": "ALL",
+        "question_count": "0",
+        "created_at": ""
+    }
+
+    if not metadata_file.exists():
+        return metadata
+
+    with open(metadata_file, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        next(reader, None)  # Skip header
+        for row in reader:
+            if len(row) == 2:
+                field, value = row
+                if field == "Exam_Name":
+                    metadata["exam_name"] = value
+                elif field == "Subject":
+                    metadata["subject"] = value
+                elif field == "Duration_Minutes":
+                    metadata["duration_minutes"] = value
+                elif field == "Passing_Percentage":
+                    metadata["passing_percentage"] = value
+                elif field == "Allowed_Students":
+                    metadata["allowed_students"] = value
+                elif field == "Question_Count":
+                    metadata["question_count"] = value
+                elif field == "Created_At":
+                    metadata["created_at"] = value
+
+    return metadata
+
+
 def get_answer_key(session_id: str) -> str | None:
     """Get answer key for a session"""
     answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
     if not answer_key_file.exists():
         return None
-    
+
     with open(answer_key_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -657,6 +755,10 @@ def view_marks(session_id: str):
         return render_template("error.html" if (APP_ROOT / "templates" / "error.html").exists() else "marks_list.html",
                              error=f"No marks found for session {session_id}"), 404
 
+    # Get session metadata for passing percentage
+    metadata = get_session_metadata(session_id)
+    passing_percentage = int(metadata["passing_percentage"])
+
     # Read all student submissions
     students = []
     headers = []
@@ -688,8 +790,8 @@ def view_marks(session_id: str):
                 except:
                     percentage = 0
 
-                # Determine result
-                result = "Pass" if percentage >= 40 else "Fail"
+                # Determine result using custom passing percentage
+                result = "Pass" if percentage >= passing_percentage else "Fail"
 
                 students.append({
                     "student_id": student_id,
