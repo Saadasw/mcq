@@ -9,8 +9,12 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List
+import uuid
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify
+
+# Import CSV v2.0 manager
+from utils.csv_manager import CSVManager, CSVValidationError
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -18,6 +22,15 @@ REPO_ROOT = APP_ROOT.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 SNIPPET_TEMPLATE = (TEMPLATES_DIR / "snippet_template.tex").read_text(encoding="utf-8")
 GENERATED_DIR = APP_ROOT / "generated"
+
+# V2.0 data directory
+DATA_DIR = APP_ROOT / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# Initialize CSV Manager (v2.0 system with file locking)
+csv_manager = CSVManager(DATA_DIR, auto_backup=True)
+
+# Legacy v1.0 directories (kept for backward compatibility)
 ANSWERS_DIR = APP_ROOT / "answers"
 SESSIONS_DIR = APP_ROOT / "sessions"
 ANSWER_KEYS_DIR = APP_ROOT / "answer_keys"
@@ -138,33 +151,52 @@ def compile_route():
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
-    # Save session metadata
-    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
-    metadata_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(metadata_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Field", "Value"])
-        writer.writerow(["Session_ID", session_id])
-        writer.writerow(["Exam_Name", exam_name])
-        writer.writerow(["Subject", subject])
-        writer.writerow(["Duration_Minutes", exam_duration])
-        writer.writerow(["Passing_Percentage", passing_marks])
-        writer.writerow(["Question_Count", len(texts)])
-        writer.writerow(["Created_At", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-        writer.writerow(["Allowed_Students", ",".join(allowed_students) if allowed_students else "ALL"])
+    # Save session metadata using CSV v2.0
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Save allowed students to separate CSV file
-    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
-    with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Student_ID", "Added_At", "Status"])
+        # Create/update session record
+        session_record = {
+            "session_id": session_id,
+            "content_hash": content_hash,
+            "question_count": str(len(texts)),
+            "created_at": now,
+            "expires_at": "",  # No expiry
+            "status": "active",
+            "exam_duration_minutes": exam_duration,
+            "created_by": "system",
+            "version": "1.0",
+            # Extra fields (stored in CSV but not in schema)
+            "exam_name": exam_name,
+            "subject": subject,
+            "passing_percentage": passing_marks
+        }
+
+        # Write session (upsert - will update if exists)
+        csv_manager.write("sessions", [session_record], mode='append', validate=True)
+
+        # Register students in the database
         if allowed_students:
-            # Write each student ID on a separate row
+            student_records = []
             for student_id in allowed_students:
-                writer.writerow([student_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
-        else:
-            # Write a marker to indicate all students are allowed
-            writer.writerow(["ALL", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
+                student_records.append({
+                    "student_id": student_id,
+                    "name": "",  # Unknown at this point
+                    "email": "unknown@example.com",  # Placeholder
+                    "institution": "",
+                    "batch": "",
+                    "registration_date": now,
+                    "status": "active",
+                    "version": "1.0"
+                })
+
+            # Write students (will skip duplicates based on student_id)
+            csv_manager.write("students", student_records, mode='append', validate=False)
+
+    except Exception as e:
+        print(f"Error saving to CSV v2.0: {e}")
+        # Fall back to legacy saving
+        pass
 
     # Save correct answers if provided
     if correct_answers_str:
@@ -173,12 +205,23 @@ def compile_route():
         if len(correct_answers_str) == num_questions:
             # Validate all digits are 1-4
             if all(c in '1234' for c in correct_answers_str):
-                answer_key_file = ANSWER_KEYS_DIR / f"answer_key_{session_id}.csv"
-                answer_key_file.parent.mkdir(parents=True, exist_ok=True)
-                with open(answer_key_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["Session_ID", "Answer_Key"])
-                    writer.writerow([session_id, correct_answers_str])
+                # Save using CSV v2.0 - one row per question
+                try:
+                    answer_key_records = []
+                    for idx, correct_option in enumerate(correct_answers_str):
+                        answer_key_records.append({
+                            "answer_key_id": f"{session_id}_q{idx}",
+                            "session_id": session_id,
+                            "question_index": str(idx),
+                            "correct_option": correct_option,
+                            "marks": "1",  # 1 mark per question
+                            "created_at": now,
+                            "version": "1.0"
+                        })
+
+                    csv_manager.write("answer_keys", answer_key_records, mode='append', validate=True)
+                except Exception as e:
+                    print(f"Error saving answer keys to v2.0: {e}")
             else:
                 print(f"Warning: Answer keys must be digits 1-4. Got: {correct_answers_str}")
         else:
@@ -517,32 +560,32 @@ def check_session():
 
 
 def get_allowed_students(session_id: str) -> list:
-    """Get list of allowed student IDs for a session from CSV file"""
-    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
-
-    if not allowed_students_file.exists():
-        # If file doesn't exist, allow all students
-        return ["ALL"]
-
-    allowed_students = []
+    """Get list of allowed student IDs for a session from CSV v2.0 database"""
     try:
-        with open(allowed_students_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                student_id = row.get("Student_ID", "").strip()
-                status = row.get("Status", "Active").strip()
-                # Only include active students
-                if student_id and status == "Active":
-                    allowed_students.append(student_id)
+        # Read all students from CSV v2.0
+        all_students = csv_manager.read("students")
+
+        # If no students registered, allow all
+        if not all_students:
+            return ["ALL"]
+
+        # Filter for active students only
+        allowed_students = [
+            row["student_id"]
+            for row in all_students
+            if row.get("status") == "active" and row.get("student_id")
+        ]
+
+        # If no active students, allow all
+        if not allowed_students:
+            return ["ALL"]
+
+        return allowed_students
+
     except Exception as e:
-        print(f"Error reading allowed students file: {e}")
+        print(f"Error reading students from v2.0: {e}")
+        # Allow all students if there's an error
         return ["ALL"]
-
-    # If no students found or file is empty, allow all
-    if not allowed_students:
-        return ["ALL"]
-
-    return allowed_students
 
 
 def is_student_allowed(session_id: str, student_id: str) -> bool:
@@ -959,7 +1002,7 @@ def manage_students(session_id: str):
 
 @app.post("/add-student/<session_id>")
 def add_student(session_id: str):
-    """Add a student to the allowed list"""
+    """Add a student to the allowed list using CSV v2.0"""
     try:
         data = request.get_json() or request.form
         new_student_id = data.get("student_id", "").strip()
@@ -967,49 +1010,51 @@ def add_student(session_id: str):
         if not new_student_id:
             return jsonify({"success": False, "error": "Student ID is required"}), 400
 
-        # Special case: if trying to add "ALL", replace entire list
+        # Special case: "ALL" means delete all students to allow everyone
         if new_student_id.upper() == "ALL":
-            allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
-            with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Student_ID", "Added_At", "Status"])
-                writer.writerow(["ALL", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
-            return jsonify({"success": True, "message": "Now allowing all students"})
-
-        # Read existing students
-        allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
-        existing_students = []
-
-        if allowed_students_file.exists():
-            with open(allowed_students_file, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                existing_students = list(reader)
+            # Delete all students to make system allow everyone
+            try:
+                all_students = csv_manager.read("students")
+                for student in all_students:
+                    student["status"] = "inactive"
+                if all_students:
+                    csv_manager.write("students", all_students, mode='overwrite', validate=False)
+                return jsonify({"success": True, "message": "Now allowing all students"})
+            except Exception as e:
+                print(f"Error deactivating all students: {e}")
+                return jsonify({"success": True, "message": "Now allowing all students"})
 
         # Check if student already exists
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        existing_students = csv_manager.read("students")
+
+        student_exists = False
         for student in existing_students:
-            if student.get("Student_ID") == new_student_id:
-                # Update status to Active if they exist
-                student["Status"] = "Active"
-                student["Added_At"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if student.get("student_id") == new_student_id:
+                # Reactivate student
+                student["status"] = "active"
+                student["registration_date"] = now
+                student_exists = True
                 break
+
+        if student_exists:
+            # Update existing student
+            csv_manager.write("students", existing_students, mode='overwrite', validate=False)
+            return jsonify({"success": True, "message": f"Reactivated student {new_student_id}"})
         else:
             # Add new student
-            existing_students.append({
-                "Student_ID": new_student_id,
-                "Added_At": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Status": "Active"
-            })
-
-        # Remove "ALL" if it exists when adding specific students
-        existing_students = [s for s in existing_students if s.get("Student_ID") != "ALL"]
-
-        # Write back to file
-        with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=["Student_ID", "Added_At", "Status"])
-            writer.writeheader()
-            writer.writerows(existing_students)
-
-        return jsonify({"success": True, "message": f"Added student {new_student_id}"})
+            new_student = {
+                "student_id": new_student_id,
+                "name": "",
+                "email": "unknown@example.com",
+                "institution": "",
+                "batch": "",
+                "registration_date": now,
+                "status": "active",
+                "version": "1.0"
+            }
+            csv_manager.write("students", [new_student], mode='append', validate=False)
+            return jsonify({"success": True, "message": f"Added student {new_student_id}"})
 
     except Exception as e:
         import traceback
@@ -1020,7 +1065,7 @@ def add_student(session_id: str):
 
 @app.post("/remove-student/<session_id>")
 def remove_student(session_id: str):
-    """Remove a student from the allowed list (set status to Inactive)"""
+    """Remove a student from the allowed list using CSV v2.0 (set status to inactive)"""
     try:
         data = request.get_json() or request.form
         student_id_to_remove = data.get("student_id", "").strip()
@@ -1028,33 +1073,25 @@ def remove_student(session_id: str):
         if not student_id_to_remove:
             return jsonify({"success": False, "error": "Student ID is required"}), 400
 
-        allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+        # Read all students from CSV v2.0
+        existing_students = csv_manager.read("students")
 
-        if not allowed_students_file.exists():
-            return jsonify({"success": False, "error": "No students file found"}), 404
+        if not existing_students:
+            return jsonify({"success": False, "error": "No students found"}), 404
 
-        # Read existing students
-        existing_students = []
-        with open(allowed_students_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            existing_students = list(reader)
-
-        # Find and update status to Inactive
+        # Find and update status to inactive
         student_found = False
         for student in existing_students:
-            if student.get("Student_ID") == student_id_to_remove:
-                student["Status"] = "Inactive"
+            if student.get("student_id") == student_id_to_remove:
+                student["status"] = "inactive"
                 student_found = True
                 break
 
         if not student_found:
             return jsonify({"success": False, "error": "Student not found"}), 404
 
-        # Write back to file
-        with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=["Student_ID", "Added_At", "Status"])
-            writer.writeheader()
-            writer.writerows(existing_students)
+        # Write back updated list
+        csv_manager.write("students", existing_students, mode='overwrite', validate=False)
 
         return jsonify({"success": True, "message": f"Removed student {student_id_to_remove}"})
 
