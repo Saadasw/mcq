@@ -27,6 +27,14 @@ except ImportError:
     CSVValidationError = Exception
     print("WARNING: CSV v2.0 manager not available, using legacy mode")
 
+# Import robust LaTeX compiler
+try:
+    from utils.robust_latex_compiler import compile_latex_robust, CompilationResult
+    ROBUST_COMPILER_AVAILABLE = True
+except ImportError:
+    ROBUST_COMPILER_AVAILABLE = False
+    print("WARNING: Robust LaTeX compiler not available, using basic compiler")
+
 
 REPO_ROOT = APP_ROOT.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
@@ -76,17 +84,58 @@ def render_snippet_tex(content: str) -> str:
 
 
 def compile_and_crop_snippet(content: str, out_dir: Path, idx: int) -> Path:
+    """
+    Compile LaTeX snippet to PDF using robust compiler
+    Falls back to basic compiler if robust version unavailable
+    """
+    latex_content = render_snippet_tex(content)
+    filename = f"snippet_{idx}"
+
+    # Try robust compiler first
+    if ROBUST_COMPILER_AVAILABLE:
+        result = compile_latex_robust(
+            latex_content,
+            out_dir,
+            filename=filename,
+            validate=True  # Enable pre-compilation validation
+        )
+
+        if result.success:
+            # Log any warnings
+            if result.warnings:
+                print(f"⚠️  Snippet {idx} compiled with warnings:")
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    print(f"   - {warning[:100]}")
+
+            return result.pdf_path
+
+        else:
+            # Compilation failed with robust compiler
+            error_msg = result.error_message or "Unknown error"
+            print(f"❌ Robust compilation failed for snippet {idx}: {error_msg}")
+
+            # Try basic compiler as fallback
+            print(f"🔄 Trying basic compiler for snippet {idx}...")
+
+    # Fallback to basic compiler (original implementation)
     with tempfile.TemporaryDirectory() as td:
         tdir = Path(td)
-        tex_path = tdir / f"snippet_{idx}.tex"
-        tex_path.write_text(render_snippet_tex(content), encoding="utf-8")
-        for _ in range(2):
-            run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex_path.name], cwd=tdir)
-        pdf_path = tdir / f"snippet_{idx}.pdf"
+        tex_path = tdir / f"{filename}.tex"
+        tex_path.write_text(latex_content, encoding="utf-8")
+
+        try:
+            for _ in range(2):
+                run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex_path.name], cwd=tdir)
+        except RuntimeError as e:
+            # Even basic compiler failed
+            raise RuntimeError(f"LaTeX compilation failed for snippet {idx}: {str(e)}")
+
+        pdf_path = tdir / f"{filename}.pdf"
         if not pdf_path.exists():
-            raise RuntimeError("PDF not produced for snippet")
-        # No cropping: copy compiled PDF directly into session output dir
-        final_pdf = out_dir / f"snippet_{idx}.pdf"
+            raise RuntimeError(f"PDF not produced for snippet {idx}")
+
+        # Copy PDF to output directory
+        final_pdf = out_dir / f"{filename}.pdf"
         import shutil as _sh
         _sh.copy2(pdf_path, final_pdf)
         return final_pdf
