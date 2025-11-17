@@ -30,6 +30,22 @@ out/
 # Web runtime outputs
 web/generated/
 
+# CSV v2.0 data files (not structure)
+web/data/core/*.csv
+web/data/transactions/*.csv
+web/data/audit/*.csv
+web/data/backups/
+
+# Legacy v1.0 data files
+web/answers/*.csv
+web/answer_keys/*.csv
+web/sessions/*.csv
+web/session_metadata/*.csv
+web/allowed_students/*.csv
+
+# Migration backups
+backup_before_migration_*/
+
 # Editor/IDE
 .idea/
 .vscode/
