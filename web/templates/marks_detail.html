@@ -273,8 +273,8 @@
       <div class="answer-key-section">
         <h3>🔑 Answer Key</h3>
         <div class="answer-key">
-          {% for i, ans in enumerate(answer_key) %}
-            <div class="answer-item">Q{{ i + 1 }}: {{ ans }}</div>
+          {% for ans in answer_key %}
+            <div class="answer-item">Q{{ loop.index }}: {{ ans }}</div>
           {% endfor %}
         </div>
       </div>

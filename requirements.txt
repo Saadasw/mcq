@@ -1,3 +1,9 @@
+# Web framework
 Flask>=2.3.0
+
+# Production server
 gunicorn>=21.2.0
+
+# Note: File locking uses built-in modules (fcntl on Unix, msvcrt on Windows)
+# No additional packages required for CSV management utilities
 
