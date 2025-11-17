@@ -21,11 +21,13 @@ GENERATED_DIR = APP_ROOT / "generated"
 ANSWERS_DIR = APP_ROOT / "answers"
 SESSIONS_DIR = APP_ROOT / "sessions"
 ANSWER_KEYS_DIR = APP_ROOT / "answer_keys"
+SESSION_METADATA_DIR = APP_ROOT / "session_metadata"
+ALLOWED_STUDENTS_DIR = APP_ROOT / "allowed_students"
 ANSWERS_DIR.mkdir(exist_ok=True)
 SESSIONS_DIR.mkdir(exist_ok=True)
 ANSWER_KEYS_DIR.mkdir(exist_ok=True)
-SESSION_METADATA_DIR = APP_ROOT / "session_metadata"
 SESSION_METADATA_DIR.mkdir(exist_ok=True)
+ALLOWED_STUDENTS_DIR.mkdir(exist_ok=True)
 
 
 def run(cmd: List[str], cwd: Path | None = None) -> str:
@@ -150,6 +152,19 @@ def compile_route():
         writer.writerow(["Question_Count", len(texts)])
         writer.writerow(["Created_At", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
         writer.writerow(["Allowed_Students", ",".join(allowed_students) if allowed_students else "ALL"])
+
+    # Save allowed students to separate CSV file
+    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+    with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Student_ID", "Added_At", "Status"])
+        if allowed_students:
+            # Write each student ID on a separate row
+            for student_id in allowed_students:
+                writer.writerow([student_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
+        else:
+            # Write a marker to indicate all students are allowed
+            writer.writerow(["ALL", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
 
     # Save correct answers if provided
     if correct_answers_str:
@@ -399,17 +414,12 @@ def start_session():
     if not student_id or not session_id:
         return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
 
-    # Check student whitelist
-    metadata = get_session_metadata(session_id)
-    allowed_students = metadata["allowed_students"]
-
-    if allowed_students != "ALL":
-        allowed_list = [s.strip() for s in allowed_students.split(",") if s.strip()]
-        if student_id not in allowed_list:
-            return jsonify({
-                "success": False,
-                "error": f"Student ID '{student_id}' is not authorized to take this exam. Please contact your instructor."
-            }), 403
+    # Check student whitelist from CSV file
+    if not is_student_allowed(session_id, student_id):
+        return jsonify({
+            "success": False,
+            "error": f"Student ID '{student_id}' is not authorized to take this exam. Please contact your instructor."
+        }), 403
 
     # Check if session already exists for this student
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
@@ -504,6 +514,47 @@ def check_session():
                 })
     
     return jsonify({"success": True, "exists": False})
+
+
+def get_allowed_students(session_id: str) -> list:
+    """Get list of allowed student IDs for a session from CSV file"""
+    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+
+    if not allowed_students_file.exists():
+        # If file doesn't exist, allow all students
+        return ["ALL"]
+
+    allowed_students = []
+    try:
+        with open(allowed_students_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                student_id = row.get("Student_ID", "").strip()
+                status = row.get("Status", "Active").strip()
+                # Only include active students
+                if student_id and status == "Active":
+                    allowed_students.append(student_id)
+    except Exception as e:
+        print(f"Error reading allowed students file: {e}")
+        return ["ALL"]
+
+    # If no students found or file is empty, allow all
+    if not allowed_students:
+        return ["ALL"]
+
+    return allowed_students
+
+
+def is_student_allowed(session_id: str, student_id: str) -> bool:
+    """Check if a student is allowed to take the exam"""
+    allowed_students = get_allowed_students(session_id)
+
+    # If "ALL" is in the list, everyone is allowed
+    if "ALL" in allowed_students:
+        return True
+
+    # Check if student is in the whitelist
+    return student_id in allowed_students
 
 
 def get_session_metadata(session_id: str) -> dict:
@@ -868,6 +919,150 @@ def view_marks(session_id: str):
         print(error_msg)
         print(traceback.format_exc())
         return f"<h1>Error Loading Marks</h1><p>{error_msg}</p><p><a href='/marks'>← Back to Marks List</a></p>", 500
+
+
+@app.get("/manage-students/<session_id>")
+def manage_students(session_id: str):
+    """View and manage allowed students for a session"""
+    # Get session metadata
+    metadata = get_session_metadata(session_id)
+
+    # Get allowed students from CSV
+    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+
+    students = []
+    if allowed_students_file.exists():
+        try:
+            with open(allowed_students_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    students.append({
+                        "student_id": row.get("Student_ID", ""),
+                        "added_at": row.get("Added_At", ""),
+                        "status": row.get("Status", "Active")
+                    })
+        except Exception as e:
+            print(f"Error reading students: {e}")
+
+    # Check if this session has questions
+    pdf_dir = GENERATED_DIR / session_id / "pdfs"
+    session_exists = pdf_dir.exists() and list(pdf_dir.glob("*.pdf"))
+
+    return render_template(
+        "manage_students.html",
+        session_id=session_id,
+        students=students,
+        metadata=metadata,
+        session_exists=session_exists
+    )
+
+
+@app.post("/add-student/<session_id>")
+def add_student(session_id: str):
+    """Add a student to the allowed list"""
+    try:
+        data = request.get_json() or request.form
+        new_student_id = data.get("student_id", "").strip()
+
+        if not new_student_id:
+            return jsonify({"success": False, "error": "Student ID is required"}), 400
+
+        # Special case: if trying to add "ALL", replace entire list
+        if new_student_id.upper() == "ALL":
+            allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+            with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Student_ID", "Added_At", "Status"])
+                writer.writerow(["ALL", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Active"])
+            return jsonify({"success": True, "message": "Now allowing all students"})
+
+        # Read existing students
+        allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+        existing_students = []
+
+        if allowed_students_file.exists():
+            with open(allowed_students_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                existing_students = list(reader)
+
+        # Check if student already exists
+        for student in existing_students:
+            if student.get("Student_ID") == new_student_id:
+                # Update status to Active if they exist
+                student["Status"] = "Active"
+                student["Added_At"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                break
+        else:
+            # Add new student
+            existing_students.append({
+                "Student_ID": new_student_id,
+                "Added_At": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Status": "Active"
+            })
+
+        # Remove "ALL" if it exists when adding specific students
+        existing_students = [s for s in existing_students if s.get("Student_ID") != "ALL"]
+
+        # Write back to file
+        with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=["Student_ID", "Added_At", "Status"])
+            writer.writeheader()
+            writer.writerows(existing_students)
+
+        return jsonify({"success": True, "message": f"Added student {new_student_id}"})
+
+    except Exception as e:
+        import traceback
+        print(f"Error adding student: {e}")
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.post("/remove-student/<session_id>")
+def remove_student(session_id: str):
+    """Remove a student from the allowed list (set status to Inactive)"""
+    try:
+        data = request.get_json() or request.form
+        student_id_to_remove = data.get("student_id", "").strip()
+
+        if not student_id_to_remove:
+            return jsonify({"success": False, "error": "Student ID is required"}), 400
+
+        allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
+
+        if not allowed_students_file.exists():
+            return jsonify({"success": False, "error": "No students file found"}), 404
+
+        # Read existing students
+        existing_students = []
+        with open(allowed_students_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            existing_students = list(reader)
+
+        # Find and update status to Inactive
+        student_found = False
+        for student in existing_students:
+            if student.get("Student_ID") == student_id_to_remove:
+                student["Status"] = "Inactive"
+                student_found = True
+                break
+
+        if not student_found:
+            return jsonify({"success": False, "error": "Student not found"}), 404
+
+        # Write back to file
+        with open(allowed_students_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=["Student_ID", "Added_At", "Status"])
+            writer.writeheader()
+            writer.writerows(existing_students)
+
+        return jsonify({"success": True, "message": f"Removed student {student_id_to_remove}"})
+
+    except Exception as e:
+        import traceback
+        print(f"Error removing student: {e}")
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/health")

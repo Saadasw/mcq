@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manage Students - {{ session_id }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .manage-container {
+        max-width: 1200px;
+        margin: 20px auto;
+        padding: 20px;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+      }
+
+      .header h1 {
+        margin: 0 0 10px 0;
+      }
+
+      .exam-info {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      .exam-info p {
+        margin: 5px 0;
+      }
+
+      .add-student-section {
+        background: #e7f3ff;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 2px solid #2196F3;
+      }
+
+      .add-student-section h3 {
+        margin: 0 0 15px 0;
+        color: #1976D2;
+      }
+
+      .add-form {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .add-form input {
+        flex: 1;
+        min-width: 250px;
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+
+      .add-form button {
+        padding: 10px 20px;
+        font-size: 16px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+
+      .add-form button:hover {
+        background: #218838;
+      }
+
+      .students-table-container {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        overflow-x: auto;
+        margin-bottom: 20px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead {
+        background: #667eea;
+        color: white;
+      }
+
+      th, td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #e0e0e0;
+      }
+
+      th {
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      tbody tr:hover {
+        background: #f5f5f5;
+      }
+
+      .student-id-cell {
+        font-family: monospace;
+        font-weight: 500;
+        font-size: 16px;
+      }
+
+      .status-active {
+        color: #28a745;
+        font-weight: bold;
+      }
+
+      .status-inactive {
+        color: #dc3545;
+        font-weight: bold;
+      }
+
+      .timestamp-cell {
+        font-size: 13px;
+        color: #666;
+      }
+
+      .remove-btn {
+        padding: 6px 12px;
+        background: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.3s;
+      }
+
+      .remove-btn:hover {
+        background: #c82333;
+      }
+
+      .remove-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+
+      .nav-links {
+        text-align: center;
+        margin: 30px 0;
+      }
+
+      .nav-links a, .nav-links button {
+        display: inline-block;
+        margin: 0 10px;
+        padding: 10px 20px;
+        background: #f0f0f0;
+        color: #333;
+        text-decoration: none;
+        border-radius: 5px;
+        border: none;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+
+      .nav-links a:hover, .nav-links button:hover {
+        background: #e0e0e0;
+      }
+
+      .message {
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: none;
+      }
+
+      .message.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .message.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+
+      .all-students-badge {
+        display: inline-block;
+        background: #28a745;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      @media (max-width: 768px) {
+        .manage-container {
+          padding: 10px;
+        }
+
+        .add-form {
+          flex-direction: column;
+        }
+
+        .add-form input {
+          width: 100%;
+        }
+
+        table {
+          font-size: 12px;
+        }
+
+        th, td {
+          padding: 8px 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="manage-container">
+      <div class="header">
+        <h1>👥 Manage Allowed Students</h1>
+        <div style="font-size: 14px; opacity: 0.9; margin-top: 10px; font-family: monospace;">
+          Session: {{ session_id }}
+        </div>
+      </div>
+
+      <!-- Exam Information -->
+      <div class="exam-info">
+        <h3 style="margin: 0 0 10px 0;">📋 Exam Information</h3>
+        <p><strong>Exam Name:</strong> {{ metadata.exam_name }}</p>
+        <p><strong>Subject:</strong> {{ metadata.subject }}</p>
+        <p><strong>Duration:</strong> {{ metadata.duration_minutes }} minutes</p>
+        <p><strong>Questions:</strong> {{ metadata.question_count }}</p>
+      </div>
+
+      <!-- Message Display -->
+      <div id="message" class="message"></div>
+
+      <!-- Add Student Section -->
+      <div class="add-student-section">
+        <h3>➕ Add Student</h3>
+        <div class="add-form">
+          <input
+            type="text"
+            id="student-id-input"
+            placeholder="Enter Student ID (or 'ALL' to allow everyone)"
+            autocomplete="off"
+          />
+          <button onclick="addStudent()">Add Student</button>
+        </div>
+        <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">
+          💡 Tip: Enter "ALL" to allow all students to take this exam, or add specific student IDs individually.
+        </p>
+      </div>
+
+      <!-- Students Table -->
+      <div class="students-table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>Student ID</th>
+              <th>Added At</th>
+              <th>Status</th>
+              <th style="width: 100px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="students-tbody">
+            {% if students %}
+              {% for student in students %}
+              <tr data-student-id="{{ student.student_id }}">
+                <td style="text-align: center;">{{ loop.index }}</td>
+                <td class="student-id-cell">
+                  {{ student.student_id }}
+                  {% if student.student_id == "ALL" %}
+                    <span class="all-students-badge">OPEN TO ALL</span>
+                  {% endif %}
+                </td>
+                <td class="timestamp-cell">{{ student.added_at }}</td>
+                <td class="{% if student.status == 'Active' %}status-active{% else %}status-inactive{% endif %}">
+                  {{ student.status }}
+                </td>
+                <td>
+                  {% if student.status == "Active" %}
+                    <button class="remove-btn" onclick="removeStudent('{{ student.student_id }}')">
+                      Remove
+                    </button>
+                  {% else %}
+                    <button class="remove-btn" disabled>Removed</button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="5" class="empty-state">
+                  <p style="margin: 0;">No students have been added yet.</p>
+                  <p style="margin: 10px 0 0 0; font-size: 14px; color: #999;">
+                    Add students above to restrict access to this exam.
+                  </p>
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Navigation -->
+      <div class="nav-links">
+        <a href="/marks/{{ session_id }}">← Back to Marks</a>
+        <a href="/view/{{ session_id }}">View Exam</a>
+        <a href="/marks">All Sessions</a>
+      </div>
+    </div>
+
+    <script>
+      const sessionId = "{{ session_id }}";
+      const messageEl = document.getElementById('message');
+
+      function showMessage(text, type) {
+        messageEl.textContent = text;
+        messageEl.className = `message ${type}`;
+        messageEl.style.display = 'block';
+        setTimeout(() => {
+          messageEl.style.display = 'none';
+        }, 5000);
+      }
+
+      async function addStudent() {
+        const input = document.getElementById('student-id-input');
+        const studentId = input.value.trim();
+
+        if (!studentId) {
+          showMessage('Please enter a student ID', 'error');
+          return;
+        }
+
+        try {
+          const response = await fetch(`/add-student/${sessionId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ student_id: studentId })
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showMessage(data.message, 'success');
+            input.value = '';
+            // Reload page to show updated list
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          } else {
+            showMessage(data.error || 'Failed to add student', 'error');
+          }
+        } catch (error) {
+          console.error('Error:', error);
+          showMessage('Error adding student', 'error');
+        }
+      }
+
+      async function removeStudent(studentId) {
+        if (!confirm(`Are you sure you want to remove student "${studentId}"?`)) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/remove-student/${sessionId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ student_id: studentId })
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showMessage(data.message, 'success');
+            // Reload page to show updated list
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          } else {
+            showMessage(data.error || 'Failed to remove student', 'error');
+          }
+        } catch (error) {
+          console.error('Error:', error);
+          showMessage('Error removing student', 'error');
+        }
+      }
+
+      // Allow Enter key to add student
+      document.getElementById('student-id-input').addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+          addStudent();
+        }
+      });
+    </script>
+  </body>
+</html>
