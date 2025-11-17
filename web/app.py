@@ -620,8 +620,7 @@ def is_student_allowed(session_id: str, student_id: str) -> bool:
 
 
 def get_session_metadata(session_id: str) -> dict:
-    """Get metadata for a session"""
-    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    """Get metadata for a session from CSV v2.0 or legacy storage"""
     metadata = {
         "exam_name": "Untitled Exam",
         "subject": "General",
@@ -632,29 +631,45 @@ def get_session_metadata(session_id: str) -> dict:
         "created_at": ""
     }
 
-    if not metadata_file.exists():
-        return metadata
+    # Try CSV v2.0 first
+    if csv_manager:
+        try:
+            sessions = csv_manager.read("sessions")
+            for session in sessions:
+                if session.get("session_id") == session_id:
+                    metadata["exam_name"] = session.get("exam_name", "Untitled Exam")
+                    metadata["subject"] = session.get("subject", "General")
+                    metadata["duration_minutes"] = session.get("exam_duration_minutes", "25")
+                    metadata["passing_percentage"] = session.get("passing_percentage", "40")
+                    metadata["question_count"] = session.get("question_count", "0")
+                    metadata["created_at"] = session.get("created_at", "")
+                    return metadata
+        except Exception as e:
+            print(f"Error reading session from CSV v2.0: {e}")
 
-    with open(metadata_file, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        next(reader, None)  # Skip header
-        for row in reader:
-            if len(row) == 2:
-                field, value = row
-                if field == "Exam_Name":
-                    metadata["exam_name"] = value
-                elif field == "Subject":
-                    metadata["subject"] = value
-                elif field == "Duration_Minutes":
-                    metadata["duration_minutes"] = value
-                elif field == "Passing_Percentage":
-                    metadata["passing_percentage"] = value
-                elif field == "Allowed_Students":
-                    metadata["allowed_students"] = value
-                elif field == "Question_Count":
-                    metadata["question_count"] = value
-                elif field == "Created_At":
-                    metadata["created_at"] = value
+    # Fall back to legacy metadata file
+    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    if metadata_file.exists():
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Skip header
+            for row in reader:
+                if len(row) == 2:
+                    field, value = row
+                    if field == "Exam_Name":
+                        metadata["exam_name"] = value
+                    elif field == "Subject":
+                        metadata["subject"] = value
+                    elif field == "Duration_Minutes":
+                        metadata["duration_minutes"] = value
+                    elif field == "Passing_Percentage":
+                        metadata["passing_percentage"] = value
+                    elif field == "Allowed_Students":
+                        metadata["allowed_students"] = value
+                    elif field == "Question_Count":
+                        metadata["question_count"] = value
+                    elif field == "Created_At":
+                        metadata["created_at"] = value
 
     return metadata
 
@@ -730,76 +745,91 @@ def save_answers():
         data = request.get_json()
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
-            
+
         student_id = data.get("student_id", "").strip()
         session_id = data.get("session_id", "").strip()
         answers = data.get("answers", {})
-        
+
         if not student_id or not session_id:
             return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
-        
-        if not answers or not isinstance(answers, dict):
+
+        if not isinstance(answers, dict):
             return jsonify({"success": False, "error": "Invalid answers format"}), 400
-        
-        # Get answer key for this session
+
+        # Get answer key to determine total number of questions
         answer_key = get_answer_key(session_id)
-        
-        # Calculate marks
-        result = calculate_marks(answers, answer_key)
-        
+
+        # Get actual number of questions from session metadata or answer key
+        metadata = get_session_metadata(session_id)
+        num_questions = int(metadata.get("question_count", "0"))
+
+        # If we can't get from metadata, try answer key
+        if num_questions == 0 and answer_key:
+            num_questions = len(answer_key)
+
+        # If still 0, count from submitted answers (fallback)
+        if num_questions == 0:
+            num_questions = len([k for k in answers.keys() if k.startswith("cell")])
+
+        if num_questions == 0:
+            return jsonify({"success": False, "error": "Cannot determine number of questions"}), 400
+
+        # Create complete answers dict with UNANSWERED for missing questions
+        complete_answers = {}
+        for i in range(num_questions):
+            cell_key = f"cell{i}"
+            complete_answers[cell_key] = answers.get(cell_key, "UNANSWERED")
+
+        # Calculate marks using complete answers
+        result = calculate_marks(complete_answers, answer_key)
+
         # Ensure result has all required fields
         if "correct_answers" not in result:
             result["correct_answers"] = {}
         if "wrong_questions" not in result:
             result["wrong_questions"] = []
         if "student_answers" not in result:
-            result["student_answers"] = answers
+            result["student_answers"] = complete_answers
         if "marks" not in result:
             result["marks"] = 0
         if "total" not in result:
-            result["total"] = len([k for k in answers.keys() if k.startswith("cell")])
-        
+            result["total"] = num_questions
+
         # Create a single CSV file for all answers (or per session)
         csv_file = ANSWERS_DIR / f"answers_{session_id}.csv"
-        
+
         # Check if CSV exists, if not create with headers
         file_exists = csv_file.exists()
-        
-        # Get number of questions from answers
-        num_questions = len([k for k in answers.keys() if k.startswith("cell")])
-        
-        if num_questions == 0:
-            return jsonify({"success": False, "error": "No valid answers found"}), 400
-        
+
         with open(csv_file, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            
+
             # Write header if new file
             if not file_exists:
                 headers = ["Student_ID", "Session_ID", "Timestamp", "Marks", "Total"] + [f"Q{i+1}" for i in range(num_questions)]
                 writer.writerow(headers)
-            
-            # Write answer row
+
+            # Write answer row with ALL questions (including UNANSWERED)
             row = [
-                student_id, 
-                session_id, 
+                student_id,
+                session_id,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 result["marks"],
                 result["total"]
             ]
-            # Sort answers by question number
-            sorted_answers = sorted(answers.items(), key=lambda x: int(x[0].replace("cell", "")))
-            row.extend([ans for _, ans in sorted_answers])
+            # Add all answers in order, using UNANSWERED for missing ones
+            for i in range(num_questions):
+                row.append(complete_answers.get(f"cell{i}", "UNANSWERED"))
             writer.writerow(row)
-        
+
         return jsonify({
-            "success": True, 
+            "success": True,
             "message": "Answers saved successfully",
             "marks": result["marks"],
             "total": result["total"],
             "correct_answers": result.get("correct_answers", {}),
             "wrong_questions": result.get("wrong_questions", []),
-            "student_answers": result.get("student_answers", answers)
+            "student_answers": result.get("student_answers", complete_answers)
         })
     except Exception as e:
         import traceback
@@ -989,22 +1019,19 @@ def manage_students(session_id: str):
     # Get session metadata
     metadata = get_session_metadata(session_id)
 
-    # Get allowed students from CSV
-    allowed_students_file = ALLOWED_STUDENTS_DIR / f"allowed_students_{session_id}.csv"
-
+    # Get allowed students from CSV v2.0
     students = []
-    if allowed_students_file.exists():
+    if csv_manager:
         try:
-            with open(allowed_students_file, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    students.append({
-                        "student_id": row.get("Student_ID", ""),
-                        "added_at": row.get("Added_At", ""),
-                        "status": row.get("Status", "Active")
-                    })
+            all_students = csv_manager.read("students")
+            for student in all_students:
+                students.append({
+                    "student_id": student.get("student_id", ""),
+                    "added_at": student.get("registration_date", ""),
+                    "status": student.get("status", "active").capitalize()
+                })
         except Exception as e:
-            print(f"Error reading students: {e}")
+            print(f"Error reading students from CSV v2.0: {e}")
 
     # Check if this session has questions
     pdf_dir = GENERATED_DIR / session_id / "pdfs"
