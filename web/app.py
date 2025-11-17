@@ -164,53 +164,44 @@ def compile_route():
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
-    # Save session metadata using CSV v2.0
+    # Save session metadata - ALWAYS save to legacy format for reliability
+    metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(metadata_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Field", "Value"])
+        writer.writerow(["Session_ID", session_id])
+        writer.writerow(["Exam_Name", exam_name])
+        writer.writerow(["Subject", subject])
+        writer.writerow(["Duration_Minutes", exam_duration])
+        writer.writerow(["Passing_Percentage", passing_marks])
+        writer.writerow(["Question_Count", len(texts)])
+        writer.writerow(["Created_At", now])
+        writer.writerow(["Allowed_Students", ",".join(allowed_students) if allowed_students else "ALL"])
+
+    # ALSO save session metadata to CSV v2.0 (if available)
     if csv_manager:
         try:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # Create/update session record
             session_record = {
                 "session_id": session_id,
                 "content_hash": content_hash,
                 "question_count": str(len(texts)),
                 "created_at": now,
-                "expires_at": "",  # No expiry
+                "expires_at": "",
                 "status": "active",
                 "exam_duration_minutes": exam_duration,
                 "created_by": "system",
                 "version": "1.0",
-                # Extra fields (stored in CSV but not in schema)
                 "exam_name": exam_name,
                 "subject": subject,
-                "passing_percentage": passing_marks
+                "passing_percentage": passing_marks,
+                "allowed_students": ",".join(allowed_students) if allowed_students else "ALL"
             }
-
-            # Write session (upsert - will update if exists)
-            csv_manager.write("sessions", [session_record], mode='append', validate=True)
-
-            # Register students in the database
-            if allowed_students:
-                student_records = []
-                for student_id in allowed_students:
-                    student_records.append({
-                        "student_id": student_id,
-                        "name": "",  # Unknown at this point
-                        "email": "unknown@example.com",  # Placeholder
-                        "institution": "",
-                        "batch": "",
-                        "registration_date": now,
-                        "status": "active",
-                        "version": "1.0"
-                    })
-
-                # Write students (will skip duplicates based on student_id)
-                csv_manager.write("students", student_records, mode='append', validate=False)
-
+            csv_manager.write("sessions", [session_record], mode='append', validate=False)
         except Exception as e:
             print(f"Error saving to CSV v2.0: {e}")
-            # Fall back to legacy saving
-            pass
 
     # Save correct answers if provided
     if correct_answers_str:
@@ -575,36 +566,23 @@ def check_session():
 
 
 def get_allowed_students(session_id: str) -> list:
-    """Get list of allowed student IDs for a session from CSV v2.0 database"""
-    # If csv_manager not available, allow all
-    if not csv_manager:
+    """Get list of allowed student IDs for THIS SPECIFIC SESSION from metadata"""
+    # Read session-specific metadata
+    metadata = get_session_metadata(session_id)
+    allowed_students_str = metadata.get("allowed_students", "ALL")
+
+    # If "ALL", everyone is allowed
+    if allowed_students_str == "ALL" or not allowed_students_str:
         return ["ALL"]
 
-    try:
-        # Read all students from CSV v2.0
-        all_students = csv_manager.read("students")
+    # Parse comma-separated list
+    allowed_list = [s.strip() for s in allowed_students_str.split(",") if s.strip()]
 
-        # If no students registered, allow all
-        if not all_students:
-            return ["ALL"]
-
-        # Filter for active students only
-        allowed_students = [
-            row["student_id"]
-            for row in all_students
-            if row.get("status") == "active" and row.get("student_id")
-        ]
-
-        # If no active students, allow all
-        if not allowed_students:
-            return ["ALL"]
-
-        return allowed_students
-
-    except Exception as e:
-        print(f"Error reading students from v2.0: {e}")
-        # Allow all students if there's an error
+    # If empty after parsing, allow all
+    if not allowed_list:
         return ["ALL"]
+
+    return allowed_list
 
 
 def is_student_allowed(session_id: str, student_id: str) -> bool:
@@ -620,7 +598,7 @@ def is_student_allowed(session_id: str, student_id: str) -> bool:
 
 
 def get_session_metadata(session_id: str) -> dict:
-    """Get metadata for a session from CSV v2.0 or legacy storage"""
+    """Get metadata for a session - reads from legacy metadata file (most reliable)"""
     metadata = {
         "exam_name": "Untitled Exam",
         "subject": "General",
@@ -631,45 +609,32 @@ def get_session_metadata(session_id: str) -> dict:
         "created_at": ""
     }
 
-    # Try CSV v2.0 first
-    if csv_manager:
-        try:
-            sessions = csv_manager.read("sessions")
-            for session in sessions:
-                if session.get("session_id") == session_id:
-                    metadata["exam_name"] = session.get("exam_name", "Untitled Exam")
-                    metadata["subject"] = session.get("subject", "General")
-                    metadata["duration_minutes"] = session.get("exam_duration_minutes", "25")
-                    metadata["passing_percentage"] = session.get("passing_percentage", "40")
-                    metadata["question_count"] = session.get("question_count", "0")
-                    metadata["created_at"] = session.get("created_at", "")
-                    return metadata
-        except Exception as e:
-            print(f"Error reading session from CSV v2.0: {e}")
-
-    # Fall back to legacy metadata file
+    # Read from legacy metadata file (MOST RELIABLE - always saved here)
     metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
     if metadata_file.exists():
-        with open(metadata_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            next(reader, None)  # Skip header
-            for row in reader:
-                if len(row) == 2:
-                    field, value = row
-                    if field == "Exam_Name":
-                        metadata["exam_name"] = value
-                    elif field == "Subject":
-                        metadata["subject"] = value
-                    elif field == "Duration_Minutes":
-                        metadata["duration_minutes"] = value
-                    elif field == "Passing_Percentage":
-                        metadata["passing_percentage"] = value
-                    elif field == "Allowed_Students":
-                        metadata["allowed_students"] = value
-                    elif field == "Question_Count":
-                        metadata["question_count"] = value
-                    elif field == "Created_At":
-                        metadata["created_at"] = value
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Skip header
+                for row in reader:
+                    if len(row) == 2:
+                        field, value = row
+                        if field == "Exam_Name":
+                            metadata["exam_name"] = value
+                        elif field == "Subject":
+                            metadata["subject"] = value
+                        elif field == "Duration_Minutes":
+                            metadata["duration_minutes"] = value
+                        elif field == "Passing_Percentage":
+                            metadata["passing_percentage"] = value
+                        elif field == "Allowed_Students":
+                            metadata["allowed_students"] = value
+                        elif field == "Question_Count":
+                            metadata["question_count"] = value
+                        elif field == "Created_At":
+                            metadata["created_at"] = value
+        except Exception as e:
+            print(f"Error reading legacy metadata: {e}")
 
     return metadata
 
@@ -1015,23 +980,30 @@ def view_marks(session_id: str):
 
 @app.get("/manage-students/<session_id>")
 def manage_students(session_id: str):
-    """View and manage allowed students for a session"""
+    """View and manage allowed students for THIS SPECIFIC SESSION"""
     # Get session metadata
     metadata = get_session_metadata(session_id)
 
-    # Get allowed students from CSV v2.0
+    # Get session-specific allowed students
+    allowed_students_list = get_allowed_students(session_id)
+
     students = []
-    if csv_manager:
-        try:
-            all_students = csv_manager.read("students")
-            for student in all_students:
-                students.append({
-                    "student_id": student.get("student_id", ""),
-                    "added_at": student.get("registration_date", ""),
-                    "status": student.get("status", "active").capitalize()
-                })
-        except Exception as e:
-            print(f"Error reading students from CSV v2.0: {e}")
+    if allowed_students_list == ["ALL"]:
+        # Show indicator that all students are allowed
+        students.append({
+            "student_id": "ALL",
+            "added_at": metadata.get("created_at", ""),
+            "status": "Active"
+        })
+    else:
+        # Show specific students for this session
+        created_at = metadata.get("created_at", "")
+        for student_id in allowed_students_list:
+            students.append({
+                "student_id": student_id,
+                "added_at": created_at,
+                "status": "Active"
+            })
 
     # Check if this session has questions
     pdf_dir = GENERATED_DIR / session_id / "pdfs"
@@ -1048,11 +1020,7 @@ def manage_students(session_id: str):
 
 @app.post("/add-student/<session_id>")
 def add_student(session_id: str):
-    """Add a student to the allowed list using CSV v2.0"""
-    # If csv_manager not available, return error
-    if not csv_manager:
-        return jsonify({"success": False, "error": "CSV v2.0 not available"}), 500
-
+    """Add a student to THIS SESSION's allowed list"""
     try:
         data = request.get_json() or request.form
         new_student_id = data.get("student_id", "").strip()
@@ -1060,51 +1028,49 @@ def add_student(session_id: str):
         if not new_student_id:
             return jsonify({"success": False, "error": "Student ID is required"}), 400
 
-        # Special case: "ALL" means delete all students to allow everyone
+        # Get current session metadata
+        metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+        if not metadata_file.exists():
+            return jsonify({"success": False, "error": "Session not found"}), 404
+
+        # Read current metadata
+        metadata = {}
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Skip header
+            for row in reader:
+                if len(row) == 2:
+                    metadata[row[0]] = row[1]
+
+        # Get current allowed students
+        current_allowed = metadata.get("Allowed_Students", "ALL")
+
+        # Special case: "ALL" means allow everyone (clear whitelist)
         if new_student_id.upper() == "ALL":
-            # Delete all students to make system allow everyone
-            try:
-                all_students = csv_manager.read("students")
-                for student in all_students:
-                    student["status"] = "inactive"
-                if all_students:
-                    csv_manager.write("students", all_students, mode='overwrite', validate=False)
-                return jsonify({"success": True, "message": "Now allowing all students"})
-            except Exception as e:
-                print(f"Error deactivating all students: {e}")
-                return jsonify({"success": True, "message": "Now allowing all students"})
-
-        # Check if student already exists
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        existing_students = csv_manager.read("students")
-
-        student_exists = False
-        for student in existing_students:
-            if student.get("student_id") == new_student_id:
-                # Reactivate student
-                student["status"] = "active"
-                student["registration_date"] = now
-                student_exists = True
-                break
-
-        if student_exists:
-            # Update existing student
-            csv_manager.write("students", existing_students, mode='overwrite', validate=False)
-            return jsonify({"success": True, "message": f"Reactivated student {new_student_id}"})
+            metadata["Allowed_Students"] = "ALL"
         else:
-            # Add new student
-            new_student = {
-                "student_id": new_student_id,
-                "name": "",
-                "email": "unknown@example.com",
-                "institution": "",
-                "batch": "",
-                "registration_date": now,
-                "status": "active",
-                "version": "1.0"
-            }
-            csv_manager.write("students", [new_student], mode='append', validate=False)
-            return jsonify({"success": True, "message": f"Added student {new_student_id}"})
+            # Parse current list
+            if current_allowed == "ALL" or not current_allowed:
+                allowed_list = []
+            else:
+                allowed_list = [s.strip() for s in current_allowed.split(",") if s.strip()]
+
+            # Add new student if not already in list
+            if new_student_id not in allowed_list:
+                allowed_list.append(new_student_id)
+
+            # Update metadata
+            metadata["Allowed_Students"] = ",".join(allowed_list)
+
+        # Write back to file
+        with open(metadata_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Field", "Value"])
+            for key, value in metadata.items():
+                writer.writerow([key, value])
+
+        message = "Now allowing all students" if new_student_id.upper() == "ALL" else f"Added student {new_student_id}"
+        return jsonify({"success": True, "message": message})
 
     except Exception as e:
         import traceback
@@ -1115,11 +1081,7 @@ def add_student(session_id: str):
 
 @app.post("/remove-student/<session_id>")
 def remove_student(session_id: str):
-    """Remove a student from the allowed list using CSV v2.0 (set status to inactive)"""
-    # If csv_manager not available, return error
-    if not csv_manager:
-        return jsonify({"success": False, "error": "CSV v2.0 not available"}), 500
-
+    """Remove a student from THIS SESSION's allowed list"""
     try:
         data = request.get_json() or request.form
         student_id_to_remove = data.get("student_id", "").strip()
@@ -1127,25 +1089,48 @@ def remove_student(session_id: str):
         if not student_id_to_remove:
             return jsonify({"success": False, "error": "Student ID is required"}), 400
 
-        # Read all students from CSV v2.0
-        existing_students = csv_manager.read("students")
+        # Cannot remove "ALL" marker
+        if student_id_to_remove.upper() == "ALL":
+            return jsonify({"success": False, "error": "Cannot remove ALL marker. Add specific students instead."}), 400
 
-        if not existing_students:
-            return jsonify({"success": False, "error": "No students found"}), 404
+        # Get current session metadata
+        metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+        if not metadata_file.exists():
+            return jsonify({"success": False, "error": "Session not found"}), 404
 
-        # Find and update status to inactive
-        student_found = False
-        for student in existing_students:
-            if student.get("student_id") == student_id_to_remove:
-                student["status"] = "inactive"
-                student_found = True
-                break
+        # Read current metadata
+        metadata = {}
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Skip header
+            for row in reader:
+                if len(row) == 2:
+                    metadata[row[0]] = row[1]
 
-        if not student_found:
-            return jsonify({"success": False, "error": "Student not found"}), 404
+        # Get current allowed students
+        current_allowed = metadata.get("Allowed_Students", "ALL")
 
-        # Write back updated list
-        csv_manager.write("students", existing_students, mode='overwrite', validate=False)
+        if current_allowed == "ALL":
+            return jsonify({"success": False, "error": "All students are allowed. Cannot remove from empty whitelist."}), 400
+
+        # Parse current list
+        allowed_list = [s.strip() for s in current_allowed.split(",") if s.strip()]
+
+        # Remove student
+        if student_id_to_remove in allowed_list:
+            allowed_list.remove(student_id_to_remove)
+        else:
+            return jsonify({"success": False, "error": "Student not found in allowed list"}), 404
+
+        # Update metadata (if empty, set to empty string, not "ALL")
+        metadata["Allowed_Students"] = ",".join(allowed_list) if allowed_list else ""
+
+        # Write back to file
+        with open(metadata_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Field", "Value"])
+            for key, value in metadata.items():
+                writer.writerow([key, value])
 
         return jsonify({"success": True, "message": f"Removed student {student_id_to_remove}"})
 
