@@ -23,7 +23,7 @@
         <a href="/manage-sessions" style="padding: 8px 16px; background: #dc3545; color: white; text-decoration: none; border-radius: 4px;">Manage Sessions (Delete)</a>
       </div>
 
-      <form id="snippet-form" action="/compile" method="post">
+      <form id="snippet-form" action="/compile" method="post" enctype="multipart/form-data">
         <!-- Exam Metadata Section -->
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <h3 style="margin-top: 0;">📋 Exam Information</h3>
@@ -119,12 +119,38 @@
           const wrapper = document.createElement('div');
           wrapper.className = 'snippet';
           const label = document.createElement('label');
-          label.textContent = `Input ${i}`;
+          label.textContent = `Question ${i}`;
+
+          // Image upload section
+          const imageLabel = document.createElement('label');
+          imageLabel.textContent = 'Image/Figure (optional):';
+          imageLabel.style.marginTop = '10px';
+          imageLabel.style.display = 'block';
+          imageLabel.style.fontSize = '14px';
+          imageLabel.style.color = '#666';
+
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.name = 'images[]';
+          fileInput.accept = 'image/*';
+          fileInput.style.marginTop = '5px';
+          fileInput.style.marginBottom = '10px';
+
+          // LaTeX text area
+          const textLabel = document.createElement('label');
+          textLabel.textContent = 'LaTeX Code:';
+          textLabel.style.display = 'block';
+          textLabel.style.marginTop = '10px';
+
           const ta = document.createElement('textarea');
           ta.name = 'texts[]';
           ta.rows = 5;
           ta.placeholder = 'Enter LaTeX body...';
+
           wrapper.appendChild(label);
+          wrapper.appendChild(imageLabel);
+          wrapper.appendChild(fileInput);
+          wrapper.appendChild(textLabel);
           wrapper.appendChild(ta);
           inputs.appendChild(wrapper);
         }

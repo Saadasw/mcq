@@ -683,11 +683,14 @@ def student_dashboard():
     """Student dashboard - shows available exams and exam history"""
     student_id = session.get('student_id')
 
-    # Get all sessions
+    # Get all sessions by finding metadata files
     sessions_list = []
-    if SESSIONS_DIR.exists():
-        for session_file in sorted(SESSIONS_DIR.glob("*.csv"), reverse=True):
-            session_id = session_file.stem.replace("session_", "")
+
+    # Look for sessions in SESSION_METADATA_DIR
+    if SESSION_METADATA_DIR.exists():
+        for metadata_file in sorted(SESSION_METADATA_DIR.glob("metadata_*.csv"), reverse=True):
+            # Extract session_id from filename: metadata_session_xxxxx.csv -> session_xxxxx
+            session_id = metadata_file.stem.replace("metadata_", "")
 
             # Get session metadata
             metadata = get_session_metadata(session_id)
@@ -833,6 +836,35 @@ def compile_route():
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
+    # Handle image uploads
+    images = request.files.getlist("images[]")
+    image_dir = sess_dir / "images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save uploaded images with proper naming (question_1.jpg, question_2.png, etc.)
+    saved_images = {}  # Maps question index to image filename
+    for i, image_file in enumerate(images, start=1):
+        if image_file and image_file.filename:
+            # Get file extension
+            import os
+            _, ext = os.path.splitext(image_file.filename)
+            if not ext:
+                ext = '.jpg'  # Default extension
+
+            # Sanitize extension and save with question number
+            ext = ext.lower()
+            if ext not in ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp']:
+                ext = '.jpg'
+
+            image_filename = f"question_{i}{ext}"
+            image_path = image_dir / image_filename
+
+            try:
+                image_file.save(str(image_path))
+                saved_images[i] = image_filename
+            except Exception as e:
+                print(f"Error saving image for question {i}: {e}")
+
     # Save session metadata - ALWAYS save to legacy format for reliability
     metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
     metadata_file.parent.mkdir(parents=True, exist_ok=True)
@@ -936,9 +968,23 @@ def view_session(session_id: str):
 
     # Build list of relative URLs to serve
     rel_urls = [f"/generated/{session_id}/pdfs/{p.name}" for p in cropped_paths]
+
+    # Check for uploaded images for each question
+    image_dir = GENERATED_DIR / session_id / "images"
+    image_urls = {}  # Maps question index to image URL
+    if image_dir.exists():
+        for i in range(1, len(rel_urls) + 1):
+            # Check for image with any supported extension
+            for ext in ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp']:
+                image_path = image_dir / f"question_{i}{ext}"
+                if image_path.exists():
+                    image_urls[i] = f"/generated/{session_id}/images/question_{i}{ext}"
+                    break
+
     return render_template(
         "output.html",
         pdf_urls=rel_urls,
+        image_urls=image_urls,
         session_id=session_id,
         num_questions=len(rel_urls),
         exam_name=metadata["exam_name"],
