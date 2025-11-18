@@ -40,6 +40,12 @@
         {% for i in range(total_cells) %}
           <div class="cell" id="cell-{{ i }}">
             {% if i < pdf_urls|length %}
+              {# Display image if available for this question (i+1) #}
+              {% if image_urls and (i+1) in image_urls %}
+                <div class="question-image-container" style="margin-bottom: 15px; text-align: center; background: #f8f9fa; padding: 10px; border-radius: 8px;">
+                  <img src="{{ image_urls[i+1] }}" alt="Question {{ i+1 }} figure" style="max-width: 100%; max-height: 400px; object-fit: contain; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
+                </div>
+              {% endif %}
               <div class="pdf-container pdf-blurred" id="pdf-container-{{ i }}">
                 <div class="pdf-loading" id="pdf-loading-{{ i }}">Loading PDF...</div>
                 <!-- Desktop: Use iframe for better quality -->
