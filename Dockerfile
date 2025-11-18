@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     texlive-latex-extra \
     # Math and science packages
     texlive-science \
-    texlive-mathscience \
     # Fonts (comprehensive)
     texlive-fonts-recommended \
     texlive-fonts-extra \
