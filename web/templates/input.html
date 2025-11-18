@@ -23,7 +23,7 @@
         <a href="/manage-sessions" style="padding: 8px 16px; background: #dc3545; color: white; text-decoration: none; border-radius: 4px;">Manage Sessions (Delete)</a>
       </div>
 
-      <form id="snippet-form" action="/compile" method="post" enctype="multipart/form-data">
+      <form id="snippet-form" action="/compile" method="post">
         <!-- Exam Metadata Section -->
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <h3 style="margin-top: 0;">📋 Exam Information</h3>
@@ -121,20 +121,24 @@
           const label = document.createElement('label');
           label.textContent = `Question ${i}`;
 
-          // Image upload section
+          // Image URL input section
           const imageLabel = document.createElement('label');
-          imageLabel.textContent = 'Image/Figure (optional):';
+          imageLabel.textContent = 'Image URL (optional):';
           imageLabel.style.marginTop = '10px';
           imageLabel.style.display = 'block';
           imageLabel.style.fontSize = '14px';
           imageLabel.style.color = '#666';
 
-          const fileInput = document.createElement('input');
-          fileInput.type = 'file';
-          fileInput.name = 'images[]';
-          fileInput.accept = 'image/*';
-          fileInput.style.marginTop = '5px';
-          fileInput.style.marginBottom = '10px';
+          const imageUrlInput = document.createElement('input');
+          imageUrlInput.type = 'text';
+          imageUrlInput.name = 'image_urls[]';
+          imageUrlInput.placeholder = 'https://example.com/image.png';
+          imageUrlInput.style.width = '100%';
+          imageUrlInput.style.padding = '8px';
+          imageUrlInput.style.marginTop = '5px';
+          imageUrlInput.style.marginBottom = '10px';
+          imageUrlInput.style.border = '1px solid #ddd';
+          imageUrlInput.style.borderRadius = '4px';
 
           // LaTeX text area
           const textLabel = document.createElement('label');
@@ -149,7 +153,7 @@
 
           wrapper.appendChild(label);
           wrapper.appendChild(imageLabel);
-          wrapper.appendChild(fileInput);
+          wrapper.appendChild(imageUrlInput);
           wrapper.appendChild(textLabel);
           wrapper.appendChild(ta);
           inputs.appendChild(wrapper);

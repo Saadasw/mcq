@@ -711,11 +711,22 @@ def student_dashboard():
                             header = next(reader, None)
                             if header:
                                 for row in reader:
-                                    if row and row[0] == student_id:
+                                    if row and len(row) > 0 and row[0] == student_id:
                                         has_taken = True
-                                        # Try to get score (last column is usually score)
-                                        if len(row) > 1 and row[-1].replace('.', '').isdigit():
-                                            student_score = row[-1]
+                                        # Get score from CSV format: Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
+                                        if len(row) > 4:
+                                            marks = row[3]
+                                            total = row[4]
+                                            try:
+                                                marks_int = int(marks)
+                                                total_int = int(total)
+                                                if total_int > 0:
+                                                    percentage = (marks_int / total_int) * 100
+                                                    student_score = f"{percentage:.1f}%"
+                                                else:
+                                                    student_score = f"{marks}/{total}"
+                                            except:
+                                                student_score = f"{marks}/{total}"
                                         break
                     except Exception as e:
                         print(f"Error reading answers for {session_id}: {e}")
@@ -758,21 +769,37 @@ def student_results():
                         continue
 
                     for row in reader:
-                        if row and row[0] == student_id:
+                        if row and len(row) > 0 and row[0] == student_id:
                             # Get metadata
                             metadata = get_session_metadata(session_id)
 
-                            # Parse score (last column)
-                            score = row[-1] if len(row) > 1 else "N/A"
+                            # Parse score from CSV format:
+                            # Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
+                            marks = row[3] if len(row) > 3 else "0"
+                            total = row[4] if len(row) > 4 else "0"
 
-                            # Get submission time (second column after student_id)
-                            submission_time = row[1] if len(row) > 1 else ""
+                            # Calculate percentage
+                            try:
+                                marks_int = int(marks)
+                                total_int = int(total)
+                                if total_int > 0:
+                                    percentage = (marks_int / total_int) * 100
+                                    score = f"{marks}/{total} ({percentage:.1f}%)"
+                                else:
+                                    score = f"{marks}/{total}"
+                            except:
+                                score = f"{marks}/{total}"
+
+                            # Get submission time (column 2)
+                            submission_time = row[2] if len(row) > 2 else ""
 
                             results.append({
                                 'session_id': session_id,
                                 'exam_name': metadata.get('exam_name', 'Untitled Exam'),
                                 'subject': metadata.get('subject', 'General'),
                                 'score': score,
+                                'marks': marks,
+                                'total': total,
                                 'submission_time': submission_time,
                                 'passing_percentage': metadata.get('passing_percentage', '40')
                             })
@@ -836,34 +863,21 @@ def compile_route():
         # PDFs already exist, just get the list
         cropped_paths = sorted(pdf_out_dir.glob("snippet_*.pdf"), key=lambda p: int(p.stem.split("_")[1]))
 
-    # Handle image uploads
-    images = request.files.getlist("images[]")
-    image_dir = sess_dir / "images"
-    image_dir.mkdir(parents=True, exist_ok=True)
+    # Handle image URLs
+    image_urls = request.form.getlist("image_urls[]")
 
-    # Save uploaded images with proper naming (question_1.jpg, question_2.png, etc.)
-    saved_images = {}  # Maps question index to image filename
-    for i, image_file in enumerate(images, start=1):
-        if image_file and image_file.filename:
-            # Get file extension
-            import os
-            _, ext = os.path.splitext(image_file.filename)
-            if not ext:
-                ext = '.jpg'  # Default extension
+    # Save image URLs to CSV file
+    image_urls_file = sess_dir / "image_urls.csv"
+    sess_dir.mkdir(parents=True, exist_ok=True)
 
-            # Sanitize extension and save with question number
-            ext = ext.lower()
-            if ext not in ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp']:
-                ext = '.jpg'
-
-            image_filename = f"question_{i}{ext}"
-            image_path = image_dir / image_filename
-
-            try:
-                image_file.save(str(image_path))
-                saved_images[i] = image_filename
-            except Exception as e:
-                print(f"Error saving image for question {i}: {e}")
+    with open(image_urls_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Question_Index", "Image_URL"])
+        for i, url in enumerate(image_urls, start=1):
+            # Only save if URL is provided
+            url = url.strip() if url else ""
+            if url:
+                writer.writerow([i, url])
 
     # Save session metadata - ALWAYS save to legacy format for reliability
     metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
@@ -969,17 +983,22 @@ def view_session(session_id: str):
     # Build list of relative URLs to serve
     rel_urls = [f"/generated/{session_id}/pdfs/{p.name}" for p in cropped_paths]
 
-    # Check for uploaded images for each question
-    image_dir = GENERATED_DIR / session_id / "images"
+    # Load image URLs from CSV file
     image_urls = {}  # Maps question index to image URL
-    if image_dir.exists():
-        for i in range(1, len(rel_urls) + 1):
-            # Check for image with any supported extension
-            for ext in ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp']:
-                image_path = image_dir / f"question_{i}{ext}"
-                if image_path.exists():
-                    image_urls[i] = f"/generated/{session_id}/images/question_{i}{ext}"
-                    break
+    image_urls_file = GENERATED_DIR / session_id / "image_urls.csv"
+    if image_urls_file.exists():
+        try:
+            with open(image_urls_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Skip header
+                for row in reader:
+                    if row and len(row) >= 2:
+                        question_idx = int(row[0])
+                        url = row[1].strip()
+                        if url:
+                            image_urls[question_idx] = url
+        except Exception as e:
+            print(f"Error loading image URLs for {session_id}: {e}")
 
     return render_template(
         "output.html",
