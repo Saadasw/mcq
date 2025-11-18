@@ -49,6 +49,9 @@ web/allowed_students/*.csv
 # Activity logs (sensitive student data)
 web/activity_logs/*.csv
 
+# Login sessions (sensitive session data)
+web/login_sessions/*.csv
+
 # Migration backups
 backup_before_migration_*/
 

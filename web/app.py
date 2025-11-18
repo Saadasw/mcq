@@ -68,6 +68,199 @@ ALLOWED_STUDENTS_DIR.mkdir(exist_ok=True)
 ACTIVITY_LOGS_DIR = APP_ROOT / "activity_logs"
 ACTIVITY_LOGS_DIR.mkdir(exist_ok=True)
 
+# Login sessions directory (for server-side session management)
+LOGIN_SESSIONS_DIR = APP_ROOT / "login_sessions"
+LOGIN_SESSIONS_DIR.mkdir(exist_ok=True)
+ACTIVE_SESSIONS_FILE = LOGIN_SESSIONS_DIR / "active_sessions.csv"
+
+
+# Login session management functions
+def create_login_session(student_id: str, is_admin: bool = False) -> str:
+    """
+    Create a new login session in CSV and return session ID
+    """
+    import secrets
+
+    # Generate unique session ID
+    session_id = secrets.token_urlsafe(32)
+
+    # Get device information
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    ip_address = request.remote_addr or 'Unknown'
+    device_info = parse_device_info(user_agent)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Create file with header if it doesn't exist
+    file_exists = ACTIVE_SESSIONS_FILE.exists()
+
+    with open(ACTIVE_SESSIONS_FILE, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+
+        if not file_exists:
+            writer.writerow([
+                "Session_ID",
+                "Student_ID",
+                "Is_Admin",
+                "Login_Time",
+                "Last_Activity",
+                "IP_Address",
+                "Device_Type",
+                "Browser",
+                "OS",
+                "User_Agent",
+                "Status"
+            ])
+
+        writer.writerow([
+            session_id,
+            student_id,
+            "Yes" if is_admin else "No",
+            timestamp,
+            timestamp,
+            ip_address,
+            device_info['device_type'],
+            device_info['browser'],
+            device_info['os'],
+            user_agent,
+            "active"
+        ])
+
+    return session_id
+
+
+def update_session_activity(session_id: str):
+    """Update last activity time for a session"""
+    if not ACTIVE_SESSIONS_FILE.exists():
+        return
+
+    try:
+        # Read all sessions
+        sessions = []
+        with open(ACTIVE_SESSIONS_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sessions = list(reader)
+
+        # Update the session
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for sess in sessions:
+            if sess['Session_ID'] == session_id:
+                sess['Last_Activity'] = timestamp
+                break
+
+        # Write back
+        if sessions:
+            with open(ACTIVE_SESSIONS_FILE, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=sessions[0].keys())
+                writer.writeheader()
+                writer.writerows(sessions)
+    except Exception as e:
+        print(f"Error updating session activity: {e}")
+
+
+def terminate_login_session(session_id: str):
+    """Mark a session as terminated"""
+    if not ACTIVE_SESSIONS_FILE.exists():
+        return
+
+    try:
+        # Read all sessions
+        sessions = []
+        with open(ACTIVE_SESSIONS_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sessions = list(reader)
+
+        # Mark session as terminated
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for sess in sessions:
+            if sess['Session_ID'] == session_id:
+                sess['Status'] = 'terminated'
+                sess['Last_Activity'] = timestamp
+                break
+
+        # Write back
+        if sessions:
+            with open(ACTIVE_SESSIONS_FILE, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=sessions[0].keys())
+                writer.writeheader()
+                writer.writerows(sessions)
+    except Exception as e:
+        print(f"Error terminating session: {e}")
+
+
+def cleanup_expired_sessions(timeout_hours: int = 24):
+    """Remove sessions inactive for more than timeout_hours"""
+    if not ACTIVE_SESSIONS_FILE.exists():
+        return
+
+    try:
+        # Read all sessions
+        sessions = []
+        with open(ACTIVE_SESSIONS_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sessions = list(reader)
+
+        # Filter out expired sessions
+        now = datetime.now()
+        active_sessions = []
+
+        for sess in sessions:
+            try:
+                last_activity = datetime.strptime(sess['Last_Activity'], "%Y-%m-%d %H:%M:%S")
+                hours_inactive = (now - last_activity).total_seconds() / 3600
+
+                # Keep if active and not expired
+                if sess['Status'] == 'active' and hours_inactive < timeout_hours:
+                    active_sessions.append(sess)
+            except Exception:
+                continue
+
+        # Write back only active sessions
+        if active_sessions:
+            with open(ACTIVE_SESSIONS_FILE, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=active_sessions[0].keys())
+                writer.writeheader()
+                writer.writerows(active_sessions)
+        elif ACTIVE_SESSIONS_FILE.exists():
+            # If no active sessions, create empty file with header
+            with open(ACTIVE_SESSIONS_FILE, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "Session_ID", "Student_ID", "Is_Admin", "Login_Time",
+                    "Last_Activity", "IP_Address", "Device_Type", "Browser",
+                    "OS", "User_Agent", "Status"
+                ])
+    except Exception as e:
+        print(f"Error cleaning up sessions: {e}")
+
+
+def get_all_active_sessions() -> list:
+    """Get all active login sessions"""
+    if not ACTIVE_SESSIONS_FILE.exists():
+        return []
+
+    try:
+        sessions = []
+        with open(ACTIVE_SESSIONS_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                sessions.append(row)
+        return sessions
+    except Exception as e:
+        print(f"Error getting active sessions: {e}")
+        return []
+
+
+def force_logout_session(session_id: str):
+    """Force logout a specific session (admin action)"""
+    terminate_login_session(session_id)
+
+
+def get_student_active_sessions(student_id: str) -> list:
+    """Get all active sessions for a specific student"""
+    all_sessions = get_all_active_sessions()
+    return [s for s in all_sessions if s.get('Student_ID') == student_id and s.get('Status') == 'active']
+
 
 # Activity logging functions
 def log_student_activity(student_id: str, activity_type: str, session_id: str = None, details: str = None):
@@ -357,6 +550,15 @@ PORT = int(os.environ.get("PORT", 5000))
 HOST = os.environ.get("HOST", "0.0.0.0")
 
 
+# Middleware to update session activity on each request
+@app.before_request
+def before_request():
+    """Update session activity timestamp before each request"""
+    if session.get('login_session_id') and session.get('student_id'):
+        # Update session activity in CSV
+        update_session_activity(session.get('login_session_id'))
+
+
 # Authentication decorators
 def admin_required(f):
     """Decorator to require admin access"""
@@ -404,15 +606,29 @@ def login():
             flash('Please enter a student ID', 'error')
             return render_template("login.html")
 
-        # Store student ID in session
+        # Check for concurrent sessions (optional - prevent multiple logins)
+        existing_sessions = get_student_active_sessions(student_id)
+        if existing_sessions:
+            # Terminate old sessions
+            for old_session in existing_sessions:
+                terminate_login_session(old_session['Session_ID'])
+
+        # Store student ID in Flask session (client-side cookie)
         session['student_id'] = student_id
         session['is_admin'] = (student_id == ADMIN_STUDENT_ID)
+
+        # Create server-side session in CSV
+        login_session_id = create_login_session(student_id, session['is_admin'])
+        session['login_session_id'] = login_session_id
+
+        # Cleanup old expired sessions periodically
+        cleanup_expired_sessions(timeout_hours=24)
 
         # Log login activity
         log_student_activity(
             student_id=student_id,
             activity_type='login',
-            details=f"{'Admin' if session['is_admin'] else 'Student'} login successful"
+            details=f"{'Admin' if session['is_admin'] else 'Student'} login successful - Session: {login_session_id[:16]}"
         )
 
         flash(f'Welcome, {student_id}!', 'success')
@@ -437,13 +653,17 @@ def login():
 @app.route("/logout")
 def logout():
     """Logout user"""
-    # Log logout activity before clearing session
+    # Log logout activity and terminate server-side session
     if session.get('student_id'):
         log_student_activity(
             student_id=session.get('student_id'),
             activity_type='logout',
             details='User logged out'
         )
+
+        # Terminate server-side session
+        if session.get('login_session_id'):
+            terminate_login_session(session.get('login_session_id'))
 
     session.clear()
     flash('You have been logged out', 'info')
@@ -1634,6 +1854,48 @@ def remove_student(session_id: str):
         import traceback
         print(f"Error removing student: {e}")
         print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.get("/admin/login-sessions")
+@admin_required
+def view_login_sessions():
+    """Admin-only page to view and manage active login sessions"""
+    # Get all sessions (active and terminated)
+    all_sessions = get_all_active_sessions()
+
+    # Calculate statistics
+    active_sessions = [s for s in all_sessions if s.get('Status') == 'active']
+    terminated_sessions = [s for s in all_sessions if s.get('Status') == 'terminated']
+
+    # Count unique students
+    unique_students = len(set(s.get('Student_ID') for s in active_sessions if s.get('Student_ID')))
+
+    # Count admin vs student sessions
+    admin_sessions_count = len([s for s in active_sessions if s.get('Is_Admin') == 'Yes'])
+    student_sessions_count = len([s for s in active_sessions if s.get('Is_Admin') == 'No'])
+
+    return render_template(
+        "login_sessions.html",
+        all_sessions=all_sessions,
+        active_sessions=active_sessions,
+        terminated_sessions=terminated_sessions,
+        total_active=len(active_sessions),
+        total_terminated=len(terminated_sessions),
+        unique_students=unique_students,
+        admin_sessions_count=admin_sessions_count,
+        student_sessions_count=student_sessions_count
+    )
+
+
+@app.post("/admin/force-logout/<session_id>")
+@admin_required
+def admin_force_logout(session_id: str):
+    """Force logout a specific session (admin action)"""
+    try:
+        force_logout_session(session_id)
+        return jsonify({"success": True, "message": f"Session {session_id[:16]}... forcefully logged out"})
+    except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
