@@ -120,32 +120,153 @@ class RobustLaTeXCompiler:
     """
 
     # Compilation strategies (in order of preference)
+    # Ordered from most capable to most compatible
     STRATEGIES = [
         {
             'name': 'lualatex_fast',
             'command': 'lualatex',
-            'args': ['-interaction=nonstopmode', '-halt-on-error'],
+            'args': ['-interaction=nonstopmode', '-halt-on-error', '-shell-escape'],
             'passes': 2,
-            'timeout': 30,
+            'timeout': 40,
+            'description': 'LuaLaTeX with shell-escape (for TikZ, minted, etc.)'
+        },
+        {
+            'name': 'xelatex_unicode',
+            'command': 'xelatex',
+            'args': ['-interaction=nonstopmode', '-halt-on-error', '-shell-escape'],
+            'passes': 2,
+            'timeout': 40,
+            'description': 'XeLaTeX for advanced Unicode and font support'
         },
         {
             'name': 'lualatex_robust',
             'command': 'lualatex',
-            'args': ['-interaction=nonstopmode'],  # No halt-on-error
-            'passes': 2,
-            'timeout': 45,
+            'args': ['-interaction=nonstopmode', '-shell-escape'],  # No halt-on-error
+            'passes': 3,  # Extra pass for references
+            'timeout': 60,
+            'description': 'LuaLaTeX robust mode (continues on errors)'
         },
         {
-            'name': 'pdflatex_fallback',
+            'name': 'xelatex_robust',
+            'command': 'xelatex',
+            'args': ['-interaction=nonstopmode', '-shell-escape'],
+            'passes': 3,
+            'timeout': 60,
+            'description': 'XeLaTeX robust mode'
+        },
+        {
+            'name': 'pdflatex_modern',
             'command': 'pdflatex',
-            'args': ['-interaction=nonstopmode'],
+            'args': ['-interaction=nonstopmode', '-shell-escape'],
+            'passes': 3,
+            'timeout': 45,
+            'description': 'PDFLaTeX with shell-escape'
+        },
+        {
+            'name': 'pdflatex_safe',
+            'command': 'pdflatex',
+            'args': ['-interaction=nonstopmode'],  # No shell-escape
             'passes': 2,
             'timeout': 30,
+            'description': 'PDFLaTeX safe mode (no shell commands)'
         },
     ]
 
     def __init__(self, validate_before_compile: bool = True):
         self.validate_before_compile = validate_before_compile
+
+    @staticmethod
+    def detect_missing_packages(log_content: str) -> List[str]:
+        """
+        Detect missing packages from LaTeX error log
+        Returns list of missing package names
+        """
+        missing_packages = []
+
+        # Common patterns for missing packages
+        patterns = [
+            r"! LaTeX Error: File `([^']+)\.sty' not found",
+            r"! LaTeX Error: File `([^']+)\.cls' not found",
+            r"Package (\w+) Error:",
+            r"! Package (\w+) not found",
+        ]
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, log_content)
+            for match in matches:
+                pkg = match.group(1)
+                if pkg not in missing_packages:
+                    missing_packages.append(pkg)
+
+        return missing_packages
+
+    @staticmethod
+    def enhance_latex_content(latex_content: str, add_packages: bool = True) -> str:
+        """
+        Enhance LaTeX content with commonly needed packages
+        Only adds if not already present and if there's a documentclass
+        """
+        if not add_packages or '\\documentclass' not in latex_content:
+            return latex_content
+
+        # Packages to add if not present (Overleaf-like defaults)
+        recommended_packages = [
+            # Math and symbols
+            ('amsmath', 'Advanced math typesetting'),
+            ('amssymb', 'Additional math symbols'),
+            ('amsfonts', 'AMS fonts'),
+            ('mathtools', 'Extensions to amsmath'),
+            # Graphics and figures
+            ('graphicx', 'Include graphics'),
+            ('float', 'Improved float control'),
+            ('caption', 'Customize captions'),
+            # Tables
+            ('booktabs', 'Professional tables'),
+            ('multirow', 'Multi-row table cells'),
+            ('longtable', 'Tables across pages'),
+            # Formatting
+            ('geometry', 'Page dimensions'),
+            ('hyperref', 'Hyperlinks and PDF metadata'),
+            ('xcolor', 'Color support'),
+            # Text
+            ('babel', 'Multilingual support'),
+            ('csquotes', 'Advanced quotation'),
+            # Bibliography
+            ('natbib', 'Natural science citations'),
+        ]
+
+        # Check which packages are already included
+        packages_to_add = []
+        for package, description in recommended_packages:
+            if f'\\usepackage{{{package}}}' not in latex_content and \
+               f'\\usepackage[' not in latex_content or \
+               f'{package}' not in latex_content:
+                packages_to_add.append(package)
+
+        # Only add if there are packages to add
+        if not packages_to_add:
+            return latex_content
+
+        # Find the documentclass line
+        doc_class_match = re.search(r'\\documentclass(\[.*?\])?\{.*?\}', latex_content)
+        if not doc_class_match:
+            return latex_content
+
+        # Insert packages after documentclass
+        insert_pos = doc_class_match.end()
+
+        # Build package inclusion string
+        package_block = '\n% Auto-added packages for better compatibility\n'
+        for pkg in packages_to_add[:5]:  # Limit to 5 most important
+            package_block += f'\\usepackage{{{pkg}}}\n'
+
+        enhanced_content = (
+            latex_content[:insert_pos] +
+            package_block +
+            latex_content[insert_pos:]
+        )
+
+        return enhanced_content
 
     def compile(
         self,
@@ -296,25 +417,41 @@ class RobustLaTeXCompiler:
 
     def _extract_error_from_log(self, log_content: str) -> str:
         """Extract meaningful error message from LaTeX log"""
+        # Check for missing packages first
+        missing_packages = self.detect_missing_packages(log_content)
+        if missing_packages:
+            pkg_list = ", ".join(missing_packages[:3])
+            return f"Missing LaTeX packages: {pkg_list}. Please install them or use a different compiler strategy."
+
         # Look for common error patterns
         error_patterns = [
-            r'! (.+)',  # Standard LaTeX error
-            r'ERROR: (.+)',
-            r'Fatal error: (.+)',
-            r'Runaway argument\?(.+)',
+            (r'! LaTeX Error: (.+)', 'LaTeX Error: {}'),
+            (r'! (.+)', 'Error: {}'),
+            (r'ERROR: (.+)', 'Compilation Error: {}'),
+            (r'Fatal error: (.+)', 'Fatal Error: {}'),
+            (r'Runaway argument\?(.+)', 'Runaway Argument: {}'),
+            (r'Undefined control sequence(.+)', 'Undefined Command: {}'),
+            (r'Missing (.+)', 'Missing: {}'),
         ]
 
-        for pattern in error_patterns:
+        for pattern, template in error_patterns:
             match = re.search(pattern, log_content, re.MULTILINE)
             if match:
-                return match.group(1).strip()[:200]  # Limit length
+                error_text = match.group(1).strip()[:200]
+                return template.format(error_text)
 
-        # Look for "l.XXX" line numbers
+        # Look for "l.XXX" line numbers with context
         line_match = re.search(r'l\.(\d+)\s+(.+)', log_content)
         if line_match:
-            return f"Error at line {line_match.group(1)}: {line_match.group(2)[:100]}"
+            line_num = line_match.group(1)
+            context = line_match.group(2)[:100]
+            return f"Error at line {line_num}: {context}"
 
-        return "Unknown compilation error (check log for details)"
+        # Check for overfull/underfull boxes (warnings that stop compilation)
+        if 'Overfull' in log_content or 'Underfull' in log_content:
+            return "Formatting issues detected. The document may still be usable."
+
+        return "Unknown compilation error. Try a different compiler strategy or check your LaTeX syntax."
 
     def _extract_warnings_from_log(self, log_content: str) -> List[str]:
         """Extract warnings from LaTeX log"""

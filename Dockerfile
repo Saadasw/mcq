@@ -1,17 +1,69 @@
 FROM python:3.11-slim
 
-# Install TeX Live with math and Bengali support
+# Install comprehensive TeX Live packages (Overleaf-like capability)
+# This provides support for: math, science, languages, graphics, bibliography, etc.
 RUN apt-get update && apt-get install -y \
+    # Core LaTeX engines
     texlive-luatex \
+    texlive-xetex \
     texlive-latex-base \
+    texlive-latex-recommended \
     texlive-latex-extra \
+    # Math and science packages
     texlive-science \
+    texlive-mathscience \
+    # Fonts (comprehensive)
     texlive-fonts-recommended \
     texlive-fonts-extra \
-    texlive-lang-other \
+    fonts-noto \
+    fonts-noto-cjk \
+    fonts-noto-core \
+    fonts-noto-extra \
+    fonts-noto-ui-core \
+    fonts-noto-ui-extra \
+    fonts-noto-unhinted \
+    fonts-liberation \
+    fonts-dejavu \
+    fonts-freefont-ttf \
+    # Bengali fonts
     fonts-beng \
     fonts-beng-extra \
-    fonts-noto-core \
+    # Language support (comprehensive)
+    texlive-lang-other \
+    texlive-lang-arabic \
+    texlive-lang-chinese \
+    texlive-lang-cyrillic \
+    texlive-lang-european \
+    texlive-lang-french \
+    texlive-lang-german \
+    texlive-lang-greek \
+    texlive-lang-italian \
+    texlive-lang-japanese \
+    texlive-lang-korean \
+    texlive-lang-spanish \
+    # Bibliography and citations
+    texlive-bibtex-extra \
+    biber \
+    # Graphics and diagrams
+    texlive-pictures \
+    texlive-pstricks \
+    # Publishers and academic styles
+    texlive-publishers \
+    # Additional formats and utilities
+    texlive-formats-extra \
+    texlive-extra-utils \
+    texlive-font-utils \
+    # Games and special packages
+    texlive-games \
+    texlive-humanities \
+    texlive-music \
+    # LaTeX package manager
+    texlive-plain-generic \
+    # Additional utilities
+    ghostscript \
+    imagemagick \
+    pdf2svg \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Rebuild LuaLaTeX font cache to recognize installed fonts
