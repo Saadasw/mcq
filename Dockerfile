@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Install comprehensive TeX Live packages (Overleaf-like capability)
-# This provides support for: math, science, languages, graphics, bibliography, etc.
+# Install essential TeX Live packages for MCQ application
+# Optimized for build speed while maintaining core functionality
 RUN apt-get update && apt-get install -y \
     # Core LaTeX engines
     texlive-luatex \
@@ -11,57 +11,23 @@ RUN apt-get update && apt-get install -y \
     texlive-latex-extra \
     # Math and science packages
     texlive-science \
-    # Fonts (comprehensive)
+    # Essential fonts
     texlive-fonts-recommended \
     texlive-fonts-extra \
     fonts-noto \
-    fonts-noto-cjk \
     fonts-noto-core \
-    fonts-noto-extra \
-    fonts-noto-ui-core \
-    fonts-noto-ui-extra \
-    fonts-noto-unhinted \
     fonts-liberation \
-    fonts-dejavu \
-    fonts-freefont-ttf \
-    # Bengali fonts
+    # Bengali fonts (primary use case)
     fonts-beng \
     fonts-beng-extra \
-    # Language support (comprehensive)
+    # Language support (essential only)
     texlive-lang-other \
-    texlive-lang-arabic \
-    texlive-lang-chinese \
-    texlive-lang-cyrillic \
-    texlive-lang-european \
-    texlive-lang-french \
-    texlive-lang-german \
-    texlive-lang-greek \
-    texlive-lang-italian \
-    texlive-lang-japanese \
-    texlive-lang-korean \
-    texlive-lang-spanish \
-    # Bibliography and citations
+    # Bibliography
     texlive-bibtex-extra \
-    biber \
     # Graphics and diagrams
     texlive-pictures \
-    texlive-pstricks \
-    # Publishers and academic styles
-    texlive-publishers \
-    # Additional formats and utilities
-    texlive-formats-extra \
-    texlive-extra-utils \
-    texlive-font-utils \
-    # Games and special packages
-    texlive-games \
-    texlive-humanities \
-    texlive-music \
-    # LaTeX package manager
-    texlive-plain-generic \
-    # Additional utilities
+    # Essential utilities
     ghostscript \
-    imagemagick \
-    pdf2svg \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
