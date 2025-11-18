@@ -711,11 +711,22 @@ def student_dashboard():
                             header = next(reader, None)
                             if header:
                                 for row in reader:
-                                    if row and row[0] == student_id:
+                                    if row and len(row) > 0 and row[0] == student_id:
                                         has_taken = True
-                                        # Try to get score (last column is usually score)
-                                        if len(row) > 1 and row[-1].replace('.', '').isdigit():
-                                            student_score = row[-1]
+                                        # Get score from CSV format: Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
+                                        if len(row) > 4:
+                                            marks = row[3]
+                                            total = row[4]
+                                            try:
+                                                marks_int = int(marks)
+                                                total_int = int(total)
+                                                if total_int > 0:
+                                                    percentage = (marks_int / total_int) * 100
+                                                    student_score = f"{percentage:.1f}%"
+                                                else:
+                                                    student_score = f"{marks}/{total}"
+                                            except:
+                                                student_score = f"{marks}/{total}"
                                         break
                     except Exception as e:
                         print(f"Error reading answers for {session_id}: {e}")
@@ -758,21 +769,37 @@ def student_results():
                         continue
 
                     for row in reader:
-                        if row and row[0] == student_id:
+                        if row and len(row) > 0 and row[0] == student_id:
                             # Get metadata
                             metadata = get_session_metadata(session_id)
 
-                            # Parse score (last column)
-                            score = row[-1] if len(row) > 1 else "N/A"
+                            # Parse score from CSV format:
+                            # Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
+                            marks = row[3] if len(row) > 3 else "0"
+                            total = row[4] if len(row) > 4 else "0"
 
-                            # Get submission time (second column after student_id)
-                            submission_time = row[1] if len(row) > 1 else ""
+                            # Calculate percentage
+                            try:
+                                marks_int = int(marks)
+                                total_int = int(total)
+                                if total_int > 0:
+                                    percentage = (marks_int / total_int) * 100
+                                    score = f"{marks}/{total} ({percentage:.1f}%)"
+                                else:
+                                    score = f"{marks}/{total}"
+                            except:
+                                score = f"{marks}/{total}"
+
+                            # Get submission time (column 2)
+                            submission_time = row[2] if len(row) > 2 else ""
 
                             results.append({
                                 'session_id': session_id,
                                 'exam_name': metadata.get('exam_name', 'Untitled Exam'),
                                 'subject': metadata.get('subject', 'General'),
                                 'score': score,
+                                'marks': marks,
+                                'total': total,
                                 'submission_time': submission_time,
                                 'passing_percentage': metadata.get('passing_percentage', '40')
                             })

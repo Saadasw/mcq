@@ -1,38 +1,27 @@
 FROM python:3.11-slim
 
-# Install essential TeX Live packages for MCQ application
-# Optimized for build speed while maintaining core functionality
-RUN apt-get update && apt-get install -y \
-    # Core LaTeX engines
-    texlive-luatex \
-    texlive-xetex \
+# Install minimal TeX Live packages for MCQ application
+# Heavily optimized for image size (target: <4GB)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core LaTeX (minimal)
     texlive-latex-base \
     texlive-latex-recommended \
-    texlive-latex-extra \
-    # Math and science packages
+    # Math packages (essential for MCQ)
     texlive-science \
-    # Essential fonts
+    # Minimal fonts
     texlive-fonts-recommended \
-    texlive-fonts-extra \
-    fonts-noto \
-    fonts-noto-core \
     fonts-liberation \
-    # Bengali fonts (primary use case)
+    # Bengali fonts (required for user)
     fonts-beng \
-    fonts-beng-extra \
-    # Language support (essential only)
-    texlive-lang-other \
-    # Bibliography
-    texlive-bibtex-extra \
-    # Graphics and diagrams
-    texlive-pictures \
     # Essential utilities
     ghostscript \
     poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Rebuild LuaLaTeX font cache to recognize installed fonts
-RUN luaotfload-tool --update || true
+    # Cleanup in same layer
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/share/doc/* \
+    && rm -rf /usr/share/man/* \
+    && rm -rf /var/cache/apt/*
 
 WORKDIR /app
 
