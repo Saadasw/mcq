@@ -28,6 +28,13 @@ except ImportError:
     CSVValidationError = Exception
     print("WARNING: CSV v2.0 manager not available, using legacy mode")
 
+# Import Normalized CSV Database
+try:
+    from utils.csv_normalized import NormalizedCSVDB
+except ImportError:
+    NormalizedCSVDB = None
+    print("WARNING: Normalized CSV database not available")
+
 # Import robust LaTeX compiler
 try:
     from utils.robust_latex_compiler import compile_latex_robust, CompilationResult
@@ -683,60 +690,45 @@ def student_dashboard():
     """Student dashboard - shows available exams and exam history"""
     student_id = session.get('student_id')
 
-    # Get all sessions by finding metadata files
+    # Get all exams from normalized CSV
     sessions_list = []
 
-    # Look for sessions in SESSION_METADATA_DIR
-    if SESSION_METADATA_DIR.exists():
-        for metadata_file in sorted(SESSION_METADATA_DIR.glob("metadata_*.csv"), reverse=True):
-            # Extract session_id from filename: metadata_session_xxxxx.csv -> session_xxxxx
-            session_id = metadata_file.stem.replace("metadata_", "")
+    if NormalizedCSVDB:
+        # Get all active exams
+        exams = NormalizedCSVDB.get_all_exams(status='active')
 
-            # Get session metadata
-            metadata = get_session_metadata(session_id)
+        for exam in exams:
+            exam_id = exam['exam_id']
 
             # Check if student is allowed
-            allowed_students = get_allowed_students(session_id)
-            is_allowed = (allowed_students == ["ALL"] or student_id in allowed_students)
+            allowed_students = NormalizedCSVDB.get_allowed_students(exam_id)
+            is_allowed = (allowed_students == ['ALL'] or student_id in allowed_students)
 
             # Check if student has taken this exam
             has_taken = False
             student_score = None
             if is_allowed:
-                answers_file = ANSWERS_DIR / f"answers_{session_id}.csv"
-                if answers_file.exists():
+                submission = NormalizedCSVDB.get_submission(exam_id, student_id)
+                if submission:
+                    has_taken = True
+                    # Calculate percentage
                     try:
-                        with open(answers_file, 'r', encoding='utf-8') as f:
-                            reader = csv.reader(f)
-                            header = next(reader, None)
-                            if header:
-                                for row in reader:
-                                    if row and len(row) > 0 and row[0] == student_id:
-                                        has_taken = True
-                                        # Get score from CSV format: Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
-                                        if len(row) > 4:
-                                            marks = row[3]
-                                            total = row[4]
-                                            try:
-                                                marks_int = int(marks)
-                                                total_int = int(total)
-                                                if total_int > 0:
-                                                    percentage = (marks_int / total_int) * 100
-                                                    student_score = f"{percentage:.1f}%"
-                                                else:
-                                                    student_score = f"{marks}/{total}"
-                                            except:
-                                                student_score = f"{marks}/{total}"
-                                        break
-                    except Exception as e:
-                        print(f"Error reading answers for {session_id}: {e}")
+                        score = int(submission['score'])
+                        total = int(submission['total_marks'])
+                        if total > 0:
+                            percentage = (score / total) * 100
+                            student_score = f"{percentage:.1f}%"
+                        else:
+                            student_score = f"{score}/{total}"
+                    except:
+                        student_score = f"{submission['score']}/{submission['total_marks']}"
 
             sessions_list.append({
-                'session_id': session_id,
-                'exam_name': metadata.get('exam_name', 'Untitled Exam'),
-                'subject': metadata.get('subject', 'General'),
-                'duration': metadata.get('duration_minutes', '25'),
-                'created_at': metadata.get('created_at', ''),
+                'session_id': exam_id,
+                'exam_name': exam.get('exam_name', 'Untitled Exam'),
+                'subject': exam.get('subject', 'General'),
+                'duration': exam.get('duration_minutes', '25'),
+                'created_at': exam.get('created_at', ''),
                 'is_allowed': is_allowed,
                 'has_taken': has_taken,
                 'score': student_score
@@ -755,57 +747,40 @@ def student_results():
 
     results = []
 
-    if ANSWERS_DIR.exists():
-        for answers_file in sorted(ANSWERS_DIR.glob("answers_*.csv"), reverse=True):
-            session_id = answers_file.stem.replace("answers_", "")
+    if NormalizedCSVDB:
+        # Get all submissions for this student
+        submissions = NormalizedCSVDB.get_student_submissions(student_id)
 
-            # Read student's answers from this session
+        for submission in submissions:
+            exam_id = submission['exam_id']
+
+            # Get exam metadata
+            exam = NormalizedCSVDB.get_exam(exam_id)
+            if not exam:
+                continue
+
+            # Calculate percentage
             try:
-                with open(answers_file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    header = next(reader, None)
+                marks_int = int(submission['score'])
+                total_int = int(submission['total_marks'])
+                if total_int > 0:
+                    percentage = (marks_int / total_int) * 100
+                    score = f"{marks_int}/{total_int} ({percentage:.1f}%)"
+                else:
+                    score = f"{marks_int}/{total_int}"
+            except:
+                score = f"{submission['score']}/{submission['total_marks']}"
 
-                    if not header:
-                        continue
-
-                    for row in reader:
-                        if row and len(row) > 0 and row[0] == student_id:
-                            # Get metadata
-                            metadata = get_session_metadata(session_id)
-
-                            # Parse score from CSV format:
-                            # Student_ID, Session_ID, Timestamp, Marks, Total, Q1, Q2, ...
-                            marks = row[3] if len(row) > 3 else "0"
-                            total = row[4] if len(row) > 4 else "0"
-
-                            # Calculate percentage
-                            try:
-                                marks_int = int(marks)
-                                total_int = int(total)
-                                if total_int > 0:
-                                    percentage = (marks_int / total_int) * 100
-                                    score = f"{marks}/{total} ({percentage:.1f}%)"
-                                else:
-                                    score = f"{marks}/{total}"
-                            except:
-                                score = f"{marks}/{total}"
-
-                            # Get submission time (column 2)
-                            submission_time = row[2] if len(row) > 2 else ""
-
-                            results.append({
-                                'session_id': session_id,
-                                'exam_name': metadata.get('exam_name', 'Untitled Exam'),
-                                'subject': metadata.get('subject', 'General'),
-                                'score': score,
-                                'marks': marks,
-                                'total': total,
-                                'submission_time': submission_time,
-                                'passing_percentage': metadata.get('passing_percentage', '40')
-                            })
-                            break
-            except Exception as e:
-                print(f"Error reading results for {session_id}: {e}")
+            results.append({
+                'session_id': exam_id,
+                'exam_name': exam.get('exam_name', 'Untitled Exam'),
+                'subject': exam.get('subject', 'General'),
+                'score': score,
+                'marks': submission['score'],
+                'total': submission['total_marks'],
+                'submission_time': submission['submitted_at'],
+                'passing_percentage': exam.get('passing_percentage', '40')
+            })
 
     return render_template("student_results.html",
                          student_id=student_id,
@@ -896,6 +871,29 @@ def compile_route():
         writer.writerow(["Created_At", now])
         writer.writerow(["Allowed_Students", ",".join(allowed_students) if allowed_students else "ALL"])
 
+    # ALSO save to Normalized CSV (new format)
+    if NormalizedCSVDB:
+        try:
+            # Prepare allowed students format (semicolon-separated)
+            allowed_students_normalized = ";".join(allowed_students) if allowed_students else "ALL"
+
+            # Create exam
+            exam_data = {
+                "exam_id": session_id,
+                "exam_name": exam_name,
+                "subject": subject,
+                "duration_minutes": exam_duration,
+                "passing_percentage": passing_marks,
+                "question_count": str(len(texts)),
+                "created_at": now,
+                "created_by": session.get('student_id', 'admin'),
+                "status": "active",
+                "allowed_students": allowed_students_normalized
+            }
+            NormalizedCSVDB.create_exam(exam_data)
+        except Exception as e:
+            print(f"Error saving exam to normalized CSV: {e}")
+
     # ALSO save session metadata to CSV v2.0 (if available)
     if csv_manager:
         try:
@@ -943,6 +941,28 @@ def compile_route():
                         csv_manager.write("answer_keys", answer_key_records, mode='append', validate=True)
                     except Exception as e:
                         print(f"Error saving answer keys to v2.0: {e}")
+
+                # ALSO save to Normalized CSV (new format)
+                if NormalizedCSVDB:
+                    try:
+                        questions = []
+                        for idx, correct_option in enumerate(correct_answers_str, start=1):
+                            # Get image URL for this question
+                            image_url = ""
+                            if idx <= len(image_urls):
+                                image_url = image_urls[idx - 1].strip()
+
+                            questions.append({
+                                "exam_id": session_id,
+                                "question_order": str(idx),
+                                "correct_option": correct_option,
+                                "marks": "1",
+                                "image_url": image_url
+                            })
+
+                        NormalizedCSVDB.create_questions(questions)
+                    except Exception as e:
+                        print(f"Error saving questions to normalized CSV: {e}")
             else:
                 print(f"Warning: Answer keys must be digits 1-4. Got: {correct_answers_str}")
         else:
@@ -1554,6 +1574,51 @@ def save_answers():
             for i in range(num_questions):
                 row.append(complete_answers.get(f"cell{i}", "UNANSWERED"))
             writer.writerow(row)
+
+        # ALSO save to Normalized CSV (new format)
+        if NormalizedCSVDB:
+            try:
+                # Check if student already submitted (duplicate prevention)
+                if not NormalizedCSVDB.has_submitted(session_id, student_id):
+                    # Prepare submission data
+                    submission_data = {
+                        "exam_id": session_id,
+                        "student_id": student_id,
+                        "submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "score": str(result["marks"]),
+                        "total_marks": str(result["total"]),
+                        "time_taken_seconds": "",
+                        "ip_address": request.remote_addr or "",
+                        "device_info": "",
+                        "status": "completed"
+                    }
+
+                    # Prepare answers with is_correct flag
+                    answer_details = []
+                    for i in range(num_questions):
+                        cell_key = f"cell{i}"
+                        selected = complete_answers.get(cell_key, "UNANSWERED")
+
+                        # Convert Bengali to number
+                        option_map = {'ক': '1', 'খ': '2', 'গ': '3', 'ঘ': '4'}
+                        selected_option = option_map.get(selected, "0")
+
+                        # Determine if correct
+                        correct_option = answer_key.get(i, "0") if answer_key else "0"
+                        is_correct = "true" if selected_option == str(correct_option) else "false"
+
+                        if selected != "UNANSWERED":
+                            answer_details.append({
+                                "question_order": str(i + 1),
+                                "selected_option": selected_option,
+                                "is_correct": is_correct,
+                                "time_spent_seconds": ""
+                            })
+
+                    # Create submission
+                    NormalizedCSVDB.create_submission(submission_data, answer_details)
+            except Exception as e:
+                print(f"Error saving submission to normalized CSV: {e}")
 
         # Log answer submission activity
         log_student_activity(
