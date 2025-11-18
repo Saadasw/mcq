@@ -1025,6 +1025,7 @@ def view_session(session_id: str):
         pdf_urls=rel_urls,
         image_urls=image_urls,
         session_id=session_id,
+        student_id=student_id,  # Pass logged-in student ID
         num_questions=len(rel_urls),
         exam_name=metadata["exam_name"],
         subject=metadata["subject"],
@@ -1362,8 +1363,13 @@ def get_allowed_students(session_id: str) -> list:
     if allowed_students_str == "ALL" or not allowed_students_str:
         return ["ALL"]
 
-    # Parse comma-separated list
-    allowed_list = [s.strip() for s in allowed_students_str.split(",") if s.strip()]
+    # Parse comma-separated (old format) or semicolon-separated (new format) list
+    # Try semicolon first (new normalized format)
+    if ";" in allowed_students_str:
+        allowed_list = [s.strip() for s in allowed_students_str.split(";") if s.strip()]
+    else:
+        # Fallback to comma-separated (old format)
+        allowed_list = [s.strip() for s in allowed_students_str.split(",") if s.strip()]
 
     # If empty after parsing, allow all
     if not allowed_list:
@@ -1385,7 +1391,7 @@ def is_student_allowed(session_id: str, student_id: str) -> bool:
 
 
 def get_session_metadata(session_id: str) -> dict:
-    """Get metadata for a session - reads from legacy metadata file (most reliable)"""
+    """Get metadata for a session - reads from legacy metadata file or normalized CSV"""
     metadata = {
         "exam_name": "Untitled Exam",
         "subject": "General",
@@ -1396,8 +1402,10 @@ def get_session_metadata(session_id: str) -> dict:
         "created_at": ""
     }
 
-    # Read from legacy metadata file (MOST RELIABLE - always saved here)
+    # Try reading from legacy metadata file first
     metadata_file = SESSION_METADATA_DIR / f"metadata_{session_id}.csv"
+    metadata_found = False
+
     if metadata_file.exists():
         try:
             with open(metadata_file, 'r', encoding='utf-8') as f:
@@ -1420,8 +1428,24 @@ def get_session_metadata(session_id: str) -> dict:
                             metadata["question_count"] = value
                         elif field == "Created_At":
                             metadata["created_at"] = value
+                metadata_found = True
         except Exception as e:
             print(f"Error reading legacy metadata: {e}")
+
+    # Fallback to normalized CSV if legacy metadata doesn't exist
+    if not metadata_found and NormalizedCSVDB:
+        try:
+            exam = NormalizedCSVDB.get_exam(session_id)
+            if exam:
+                metadata["exam_name"] = exam.get("exam_name", "Untitled Exam")
+                metadata["subject"] = exam.get("subject", "General")
+                metadata["duration_minutes"] = exam.get("duration_minutes", "25")
+                metadata["passing_percentage"] = exam.get("passing_percentage", "40")
+                metadata["allowed_students"] = exam.get("allowed_students", "ALL")
+                metadata["question_count"] = exam.get("question_count", "0")
+                metadata["created_at"] = exam.get("created_at", "")
+        except Exception as e:
+            print(f"Error reading normalized CSV metadata: {e}")
 
     return metadata
 
@@ -1499,12 +1523,17 @@ def save_answers():
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
 
-        student_id = data.get("student_id", "").strip()
+        # SECURITY FIX: Use logged-in student ID from session, not from request body
+        # This prevents students from impersonating others
+        student_id = session.get('student_id')
+        if not student_id:
+            return jsonify({"success": False, "error": "Not logged in"}), 401
+
         session_id = data.get("session_id", "").strip()
         answers = data.get("answers", {})
 
-        if not student_id or not session_id:
-            return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
+        if not session_id:
+            return jsonify({"success": False, "error": "Missing session_id"}), 400
 
         if not isinstance(answers, dict):
             return jsonify({"success": False, "error": "Invalid answers format"}), 400

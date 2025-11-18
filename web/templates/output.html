@@ -18,8 +18,8 @@
       </div>
       <div class="student-info mobile-compact">
         <div class="form-group">
-          <label for="student_id_input"><strong>Student ID:</strong></label>
-          <input id="student_id_input" type="text" required placeholder="Enter Student ID" style="width: 300px; padding: 8px; font-size: 16px; margin-left: 10px;" />
+          <p style="margin: 5px 0;"><strong>Student ID:</strong> <span style="color: #007bff; font-weight: bold;">{{ student_id }}</span></p>
+          <input id="student_id_input" type="hidden" value="{{ student_id }}" readonly />
         </div>
         <div class="timer-section">
           <button id="start-timer-btn" class="button timer-button" style="background: #28a745; margin-top: 8px;">
@@ -677,7 +677,6 @@
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              student_id: studentId,
               session_id: sessionId,
               answers: answers
             })
