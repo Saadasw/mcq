@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Student Activity Logs - Admin</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .logs-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px 20px;
+        margin: -20px -20px 30px -20px;
+        border-radius: 10px 10px 0 0;
+      }
+      .header-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .nav-btn {
+        padding: 8px 16px;
+        background: rgba(255,255,255,0.2);
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        border: 1px solid rgba(255,255,255,0.3);
+        transition: background 0.3s;
+        margin-left: 10px;
+      }
+      .nav-btn:hover {
+        background: rgba(255,255,255,0.3);
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+      .stat-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+      }
+      .stat-number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #667eea;
+      }
+      .stat-label {
+        color: #666;
+        margin-top: 5px;
+        font-size: 14px;
+      }
+      .filters-section {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .filter-row {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: end;
+      }
+      .filter-group {
+        flex: 1;
+        min-width: 200px;
+      }
+      .filter-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #333;
+      }
+      .filter-group input,
+      .filter-group select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .filter-btn {
+        padding: 10px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+      }
+      .filter-btn:hover {
+        background: #0056b3;
+      }
+      .clear-btn {
+        padding: 10px 20px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .clear-btn:hover {
+        background: #545b62;
+      }
+      .logs-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .logs-table thead {
+        background: #f8f9fa;
+      }
+      .logs-table th {
+        padding: 12px;
+        text-align: left;
+        font-weight: bold;
+        color: #333;
+        border-bottom: 2px solid #dee2e6;
+        font-size: 13px;
+      }
+      .logs-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        font-size: 13px;
+      }
+      .logs-table tbody tr:hover {
+        background: #f8f9fa;
+      }
+      .activity-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+      }
+      .badge-login {
+        background: #d4edda;
+        color: #155724;
+      }
+      .badge-session_start {
+        background: #cce5ff;
+        color: #004085;
+      }
+      .badge-session_resume {
+        background: #fff3cd;
+        color: #856404;
+      }
+      .badge-answer_submit {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
+      .badge-logout {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .device-icon {
+        font-size: 18px;
+        margin-right: 5px;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+      }
+      .truncate {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .attempt-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #6c757d;
+        color: white;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="logs-header">
+        <div class="header-content">
+          <div>
+            <h1 style="margin: 0;">Student Activity Logs</h1>
+            <p style="margin: 10px 0 0 0;">Track student logins, sessions, and exam attempts</p>
+          </div>
+          <div>
+            <a href="/admin" class="nav-btn">Admin Panel</a>
+            <a href="/marks" class="nav-btn">View Marks</a>
+            <a href="/logout" class="nav-btn">Logout</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number">{{ unique_student_count }}</div>
+          <div class="stat-label">Unique Students</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">{{ total_logins }}</div>
+          <div class="stat-label">Total Logins</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">{{ total_sessions }}</div>
+          <div class="stat-label">Sessions Started</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">{{ total_submissions }}</div>
+          <div class="stat-label">Answers Submitted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">{{ logs|length }}</div>
+          <div class="stat-label">Total Activities</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-section">
+        <h3 style="margin-top: 0;">Filter Logs</h3>
+        <form method="GET" action="/admin/activity-logs">
+          <div class="filter-row">
+            <div class="filter-group">
+              <label for="student_id">Student ID</label>
+              <input type="text" id="student_id" name="student_id"
+                     placeholder="Filter by student ID"
+                     value="{{ student_filter }}">
+            </div>
+            <div class="filter-group">
+              <label for="activity_type">Activity Type</label>
+              <select id="activity_type" name="activity_type">
+                <option value="">All Activities</option>
+                {% for activity in unique_activities %}
+                  <option value="{{ activity }}" {% if activity == activity_filter %}selected{% endif %}>
+                    {{ activity }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="limit">Limit</label>
+              <select id="limit" name="limit">
+                <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
+                <option value="500" {% if limit == 500 %}selected{% endif %}>500</option>
+                <option value="1000" {% if limit == 1000 %}selected{% endif %}>1000</option>
+                <option value="5000" {% if limit == 5000 %}selected{% endif %}>5000</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <button type="submit" class="filter-btn">Apply Filters</button>
+            </div>
+            <div class="filter-group">
+              <a href="/admin/activity-logs" class="clear-btn">Clear Filters</a>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Logs Table -->
+      {% if logs %}
+        <div style="overflow-x: auto;">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Student ID</th>
+                <th>Activity</th>
+                <th>Session ID</th>
+                <th>Attempt #</th>
+                <th>Device</th>
+                <th>Browser</th>
+                <th>OS</th>
+                <th>IP Address</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in logs %}
+                <tr>
+                  <td style="white-space: nowrap;">{{ log.Timestamp }}</td>
+                  <td><strong>{{ log.Student_ID }}</strong></td>
+                  <td>
+                    <span class="activity-badge badge-{{ log.Activity_Type }}">
+                      {{ log.Activity_Type }}
+                    </span>
+                  </td>
+                  <td>
+                    {% if log.Session_ID %}
+                      <code style="font-size: 11px;">{{ log.Session_ID[:12] }}...</code>
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if log.Attempt_Number and log.Attempt_Number != '0' %}
+                      <span class="attempt-badge">#{{ log.Attempt_Number }}</span>
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if log.Device_Type == 'Desktop' %}
+                      <span class="device-icon">💻</span>
+                    {% elif log.Device_Type == 'Mobile' %}
+                      <span class="device-icon">📱</span>
+                    {% elif log.Device_Type == 'Tablet' %}
+                      <span class="device-icon">📲</span>
+                    {% endif %}
+                    {{ log.Device_Type }}
+                  </td>
+                  <td>{{ log.Browser }}</td>
+                  <td>{{ log.OS }}</td>
+                  <td><code style="font-size: 11px;">{{ log.IP_Address }}</code></td>
+                  <td class="truncate" title="{{ log.Details }}">{{ log.Details }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <h2>No Activity Logs Found</h2>
+          <p>No student activity has been recorded yet, or your filters returned no results.</p>
+          <a href="/admin/activity-logs" class="clear-btn" style="margin-top: 20px;">Clear Filters</a>
+        </div>
+      {% endif %}
+
+      <!-- Footer Info -->
+      <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h4>About Activity Logs</h4>
+        <ul style="line-height: 1.8; color: #666;">
+          <li><strong>Login:</strong> Student logged into the system</li>
+          <li><strong>Session Start:</strong> Student started a new exam session (first attempt)</li>
+          <li><strong>Session Resume:</strong> Student resumed an existing exam session</li>
+          <li><strong>Answer Submit:</strong> Student submitted their exam answers</li>
+          <li><strong>Logout:</strong> Student logged out of the system</li>
+          <li><strong>Attempt Number:</strong> Tracks how many times a student has attempted a specific exam</li>
+          <li><strong>Device Info:</strong> Automatically detected from User-Agent</li>
+        </ul>
+        <p style="margin-top: 15px; color: #999; font-size: 12px;">
+          <strong>Note:</strong> Logs are stored daily in CSV files at <code>web/activity_logs/activity_YYYY-MM-DD.csv</code>
+        </p>
+      </div>
+
+    </div>
+  </body>
+</html>

@@ -64,6 +64,197 @@ ANSWER_KEYS_DIR.mkdir(exist_ok=True)
 SESSION_METADATA_DIR.mkdir(exist_ok=True)
 ALLOWED_STUDENTS_DIR.mkdir(exist_ok=True)
 
+# Activity logging directory (for tracking student logins and attempts)
+ACTIVITY_LOGS_DIR = APP_ROOT / "activity_logs"
+ACTIVITY_LOGS_DIR.mkdir(exist_ok=True)
+
+
+# Activity logging functions
+def log_student_activity(student_id: str, activity_type: str, session_id: str = None, details: str = None):
+    """
+    Log student activity to CSV for audit trail
+
+    Args:
+        student_id: Student ID
+        activity_type: Type of activity (login, session_start, session_check, answer_submit, logout)
+        session_id: Exam session ID (if applicable)
+        details: Additional details
+    """
+    try:
+        # Get device information from request
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        ip_address = request.remote_addr or 'Unknown'
+
+        # Parse device info from User-Agent
+        device_info = parse_device_info(user_agent)
+
+        # Get or increment attempt number for this student and session
+        attempt_number = get_attempt_number(student_id, session_id) if session_id else 0
+
+        # Create log entry
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Daily log file (one file per day)
+        log_date = datetime.now().strftime("%Y-%m-%d")
+        log_file = ACTIVITY_LOGS_DIR / f"activity_{log_date}.csv"
+
+        # Create file with header if it doesn't exist
+        file_exists = log_file.exists()
+
+        with open(log_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+
+            if not file_exists:
+                # Write header
+                writer.writerow([
+                    "Timestamp",
+                    "Student_ID",
+                    "Activity_Type",
+                    "Session_ID",
+                    "Attempt_Number",
+                    "IP_Address",
+                    "Device_Type",
+                    "Browser",
+                    "OS",
+                    "User_Agent",
+                    "Details"
+                ])
+
+            # Write activity log
+            writer.writerow([
+                timestamp,
+                student_id,
+                activity_type,
+                session_id or "",
+                attempt_number,
+                ip_address,
+                device_info['device_type'],
+                device_info['browser'],
+                device_info['os'],
+                user_agent,
+                details or ""
+            ])
+
+    except Exception as e:
+        # Don't crash the app if logging fails
+        print(f"Error logging activity: {e}")
+
+
+def parse_device_info(user_agent: str) -> dict:
+    """Parse User-Agent string to extract device information"""
+    ua_lower = user_agent.lower()
+
+    # Detect device type
+    if 'mobile' in ua_lower or 'android' in ua_lower or 'iphone' in ua_lower:
+        device_type = 'Mobile'
+    elif 'tablet' in ua_lower or 'ipad' in ua_lower:
+        device_type = 'Tablet'
+    else:
+        device_type = 'Desktop'
+
+    # Detect browser
+    if 'edg' in ua_lower:
+        browser = 'Edge'
+    elif 'chrome' in ua_lower:
+        browser = 'Chrome'
+    elif 'firefox' in ua_lower:
+        browser = 'Firefox'
+    elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+        browser = 'Safari'
+    elif 'opera' in ua_lower or 'opr' in ua_lower:
+        browser = 'Opera'
+    else:
+        browser = 'Other'
+
+    # Detect OS
+    if 'windows' in ua_lower:
+        os_name = 'Windows'
+    elif 'mac' in ua_lower:
+        os_name = 'macOS'
+    elif 'linux' in ua_lower:
+        os_name = 'Linux'
+    elif 'android' in ua_lower:
+        os_name = 'Android'
+    elif 'ios' in ua_lower or 'iphone' in ua_lower or 'ipad' in ua_lower:
+        os_name = 'iOS'
+    else:
+        os_name = 'Other'
+
+    return {
+        'device_type': device_type,
+        'browser': browser,
+        'os': os_name
+    }
+
+
+def get_attempt_number(student_id: str, session_id: str) -> int:
+    """Get the attempt number for a student's session"""
+    try:
+        # Count how many times this student has started this session
+        count = 0
+
+        # Check all activity logs
+        for log_file in sorted(ACTIVITY_LOGS_DIR.glob("activity_*.csv")):
+            try:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if (row.get('Student_ID') == student_id and
+                            row.get('Session_ID') == session_id and
+                            row.get('Activity_Type') == 'session_start'):
+                            count += 1
+            except Exception:
+                continue
+
+        # Return next attempt number
+        return count + 1
+
+    except Exception:
+        return 1
+
+
+def get_all_activity_logs(limit: int = 1000) -> list:
+    """Get all activity logs, most recent first"""
+    logs = []
+
+    try:
+        # Read all log files in reverse chronological order
+        for log_file in sorted(ACTIVITY_LOGS_DIR.glob("activity_*.csv"), reverse=True):
+            try:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        logs.append(row)
+                        if len(logs) >= limit:
+                            return logs
+            except Exception as e:
+                print(f"Error reading log file {log_file}: {e}")
+                continue
+    except Exception as e:
+        print(f"Error getting activity logs: {e}")
+
+    return logs
+
+
+def get_student_activity_logs(student_id: str) -> list:
+    """Get activity logs for a specific student"""
+    logs = []
+
+    try:
+        for log_file in sorted(ACTIVITY_LOGS_DIR.glob("activity_*.csv"), reverse=True):
+            try:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get('Student_ID') == student_id:
+                            logs.append(row)
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error getting student activity logs: {e}")
+
+    return logs
+
 
 def run(cmd: List[str], cwd: Path | None = None) -> str:
     proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -217,6 +408,13 @@ def login():
         session['student_id'] = student_id
         session['is_admin'] = (student_id == ADMIN_STUDENT_ID)
 
+        # Log login activity
+        log_student_activity(
+            student_id=student_id,
+            activity_type='login',
+            details=f"{'Admin' if session['is_admin'] else 'Student'} login successful"
+        )
+
         flash(f'Welcome, {student_id}!', 'success')
 
         # Redirect based on role
@@ -239,6 +437,14 @@ def login():
 @app.route("/logout")
 def logout():
     """Logout user"""
+    # Log logout activity before clearing session
+    if session.get('student_id'):
+        log_student_activity(
+            student_id=session.get('student_id'),
+            activity_type='logout',
+            details='User logged out'
+        )
+
     session.clear()
     flash('You have been logged out', 'info')
     return redirect(url_for('login'))
@@ -747,7 +953,7 @@ def start_session():
         # Create new session entry
         start_time = datetime.now()
         file_exists = sessions_file.exists()
-        
+
         with open(sessions_file, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             if not file_exists:
@@ -758,7 +964,23 @@ def start_session():
                 start_time.strftime("%Y-%m-%d %H:%M:%S"),
                 start_time.strftime("%Y-%m-%d")
             ])
-    
+
+        # Log session start activity
+        log_student_activity(
+            student_id=student_id,
+            activity_type='session_start',
+            session_id=session_id,
+            details='Started new exam session'
+        )
+    else:
+        # Log session resume activity
+        log_student_activity(
+            student_id=student_id,
+            activity_type='session_resume',
+            session_id=session_id,
+            details='Resumed existing exam session'
+        )
+
     return jsonify({
         "success": True,
         "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1047,6 +1269,14 @@ def save_answers():
             for i in range(num_questions):
                 row.append(complete_answers.get(f"cell{i}", "UNANSWERED"))
             writer.writerow(row)
+
+        # Log answer submission activity
+        log_student_activity(
+            student_id=student_id,
+            activity_type='answer_submit',
+            session_id=session_id,
+            details=f"Submitted answers - Score: {result['marks']}/{result['total']}"
+        )
 
         return jsonify({
             "success": True,
@@ -1405,6 +1635,50 @@ def remove_student(session_id: str):
         print(f"Error removing student: {e}")
         print(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.get("/admin/activity-logs")
+@admin_required
+def view_activity_logs():
+    """Admin-only page to view student activity logs"""
+    # Get filter parameters
+    student_filter = request.args.get('student_id', '').strip()
+    activity_filter = request.args.get('activity_type', '').strip()
+    limit = int(request.args.get('limit', '500'))
+
+    # Get logs
+    if student_filter:
+        logs = get_student_activity_logs(student_filter)
+    else:
+        logs = get_all_activity_logs(limit=limit)
+
+    # Apply activity type filter if specified
+    if activity_filter and logs:
+        logs = [log for log in logs if log.get('Activity_Type') == activity_filter]
+
+    # Get unique student IDs and activity types for filters
+    unique_students = sorted(set(log.get('Student_ID', '') for log in logs if log.get('Student_ID')))
+    unique_activities = sorted(set(log.get('Activity_Type', '') for log in logs if log.get('Activity_Type')))
+
+    # Count statistics
+    total_logins = len([log for log in logs if log.get('Activity_Type') == 'login'])
+    total_sessions = len([log for log in logs if log.get('Activity_Type') == 'session_start'])
+    total_submissions = len([log for log in logs if log.get('Activity_Type') == 'answer_submit'])
+    unique_student_count = len(unique_students)
+
+    return render_template(
+        "activity_logs.html",
+        logs=logs,
+        student_filter=student_filter,
+        activity_filter=activity_filter,
+        limit=limit,
+        unique_students=unique_students,
+        unique_activities=unique_activities,
+        total_logins=total_logins,
+        total_sessions=total_sessions,
+        total_submissions=total_submissions,
+        unique_student_count=unique_student_count
+    )
 
 
 @app.route("/health")
