@@ -683,11 +683,14 @@ def student_dashboard():
     """Student dashboard - shows available exams and exam history"""
     student_id = session.get('student_id')
 
-    # Get all sessions
+    # Get all sessions by finding metadata files
     sessions_list = []
-    if SESSIONS_DIR.exists():
-        for session_file in sorted(SESSIONS_DIR.glob("*.csv"), reverse=True):
-            session_id = session_file.stem.replace("session_", "")
+
+    # Look for sessions in SESSION_METADATA_DIR
+    if SESSION_METADATA_DIR.exists():
+        for metadata_file in sorted(SESSION_METADATA_DIR.glob("metadata_*.csv"), reverse=True):
+            # Extract session_id from filename: metadata_session_xxxxx.csv -> session_xxxxx
+            session_id = metadata_file.stem.replace("metadata_", "")
 
             # Get session metadata
             metadata = get_session_metadata(session_id)
