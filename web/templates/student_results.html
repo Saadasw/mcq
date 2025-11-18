@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Results - MCQ System</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .results-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px 20px;
+        margin: -20px -20px 30px -20px;
+        border-radius: 10px 10px 0 0;
+      }
+      .header-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .back-btn {
+        padding: 8px 16px;
+        background: rgba(255,255,255,0.2);
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        border: 1px solid rgba(255,255,255,0.3);
+        transition: background 0.3s;
+        margin-left: 10px;
+      }
+      .back-btn:hover {
+        background: rgba(255,255,255,0.3);
+      }
+      .results-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+        background: white;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .results-table thead {
+        background: #f8f9fa;
+      }
+      .results-table th {
+        padding: 15px;
+        text-align: left;
+        font-weight: bold;
+        color: #333;
+        border-bottom: 2px solid #dee2e6;
+      }
+      .results-table td {
+        padding: 15px;
+        border-bottom: 1px solid #dee2e6;
+      }
+      .results-table tbody tr:hover {
+        background: #f8f9fa;
+      }
+      .score-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 16px;
+      }
+      .score-excellent {
+        background: #d4edda;
+        color: #155724;
+      }
+      .score-good {
+        background: #cce5ff;
+        color: #004085;
+      }
+      .score-ok {
+        background: #fff3cd;
+        color: #856404;
+      }
+      .score-poor {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+      }
+      .summary-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+      .summary-card {
+        background: white;
+        padding: 25px;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+      }
+      .summary-number {
+        font-size: 36px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      .summary-label {
+        color: #666;
+        font-size: 14px;
+      }
+      .average-score {
+        color: #007bff;
+      }
+      .total-exams {
+        color: #28a745;
+      }
+      .pass-rate {
+        color: #fd7e14;
+      }
+      .status-icon {
+        font-size: 20px;
+        margin-right: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="results-header">
+        <div class="header-content">
+          <div>
+            <h1 style="margin: 0;">My Exam Results</h1>
+            <p style="margin: 10px 0 0 0;">Student: {{ student_id }}</p>
+          </div>
+          <div>
+            <a href="/student/dashboard" class="back-btn">← Back to Dashboard</a>
+            <a href="/logout" class="back-btn">Logout</a>
+          </div>
+        </div>
+      </div>
+
+      {% if results %}
+        <!-- Summary Statistics -->
+        <div class="summary-cards">
+          <div class="summary-card">
+            <div class="summary-number total-exams">{{ results|length }}</div>
+            <div class="summary-label">Total Exams Taken</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-number average-score">
+              {% set scores = [] %}
+              {% for result in results %}
+                {% if result.score != 'N/A' and result.score|float >= 0 %}
+                  {% set _ = scores.append(result.score|float) %}
+                {% endif %}
+              {% endfor %}
+              {% if scores %}
+                {{ "%.1f"|format(scores|sum / scores|length) }}
+              {% else %}
+                N/A
+              {% endif %}
+            </div>
+            <div class="summary-label">Average Score</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-number pass-rate">
+              {% set passed = [] %}
+              {% for result in results %}
+                {% if result.score != 'N/A' and result.score|float >= result.passing_percentage|float %}
+                  {% set _ = passed.append(1) %}
+                {% endif %}
+              {% endfor %}
+              {% if scores %}
+                {{ "%.0f"|format((passed|length / scores|length) * 100) }}%
+              {% else %}
+                N/A
+              {% endif %}
+            </div>
+            <div class="summary-label">Pass Rate</div>
+          </div>
+        </div>
+
+        <!-- Detailed Results Table -->
+        <h2>Detailed Results</h2>
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>Exam Name</th>
+              <th>Subject</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Submission Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for result in results %}
+              <tr>
+                <td><strong>{{ result.exam_name }}</strong></td>
+                <td>{{ result.subject }}</td>
+                <td>
+                  {% if result.score != 'N/A' %}
+                    {% set score_val = result.score|float %}
+                    {% if score_val >= 80 %}
+                      <span class="score-badge score-excellent">{{ result.score }}</span>
+                    {% elif score_val >= 60 %}
+                      <span class="score-badge score-good">{{ result.score }}</span>
+                    {% elif score_val >= 40 %}
+                      <span class="score-badge score-ok">{{ result.score }}</span>
+                    {% else %}
+                      <span class="score-badge score-poor">{{ result.score }}</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="score-badge score-ok">{{ result.score }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if result.score != 'N/A' and result.score|float >= result.passing_percentage|float %}
+                    <span class="status-icon">✅</span> Passed
+                  {% elif result.score != 'N/A' %}
+                    <span class="status-icon">❌</span> Failed
+                  {% else %}
+                    <span class="status-icon">📝</span> Graded
+                  {% endif %}
+                  <br>
+                  <small style="color: #666;">(Pass: {{ result.passing_percentage }}%)</small>
+                </td>
+                <td>{{ result.submission_time if result.submission_time else 'N/A' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <!-- Performance Summary -->
+        <div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+          <h3>📊 Performance Summary</h3>
+          <ul style="line-height: 1.8; color: #666;">
+            <li>You have completed <strong>{{ results|length }}</strong> exam(s)</li>
+            {% if scores %}
+              <li>Your highest score: <strong>{{ scores|max }}</strong></li>
+              <li>Your lowest score: <strong>{{ scores|min }}</strong></li>
+              <li>Exams passed: <strong>{{ passed|length }} / {{ scores|length }}</strong></li>
+            {% endif %}
+          </ul>
+        </div>
+
+      {% else %}
+        <div class="empty-state">
+          <h2>No Results Yet</h2>
+          <p>You haven't taken any exams yet. Check the dashboard for available exams.</p>
+          <a href="/student/dashboard" class="back-btn" style="display: inline-block; margin-top: 20px;">Go to Dashboard</a>
+        </div>
+      {% endif %}
+
+    </div>
+  </body>
+</html>

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Student Dashboard - MCQ System</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .dashboard-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px 20px;
+        margin: -20px -20px 30px -20px;
+        border-radius: 10px 10px 0 0;
+      }
+      .user-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .logout-btn {
+        padding: 8px 16px;
+        background: rgba(255,255,255,0.2);
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        border: 1px solid rgba(255,255,255,0.3);
+        transition: background 0.3s;
+      }
+      .logout-btn:hover {
+        background: rgba(255,255,255,0.3);
+      }
+      .section {
+        margin-bottom: 40px;
+      }
+      .exam-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+      }
+      .exam-card {
+        background: white;
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 20px;
+        transition: all 0.3s;
+      }
+      .exam-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+      }
+      .exam-card.available {
+        border-color: #28a745;
+      }
+      .exam-card.completed {
+        border-color: #6c757d;
+        opacity: 0.8;
+      }
+      .exam-card.not-allowed {
+        border-color: #dc3545;
+        opacity: 0.6;
+      }
+      .exam-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 10px;
+      }
+      .exam-info {
+        color: #666;
+        font-size: 14px;
+        margin: 5px 0;
+      }
+      .exam-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 15px;
+        font-size: 12px;
+        font-weight: bold;
+        margin-top: 10px;
+      }
+      .status-available {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status-completed {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
+      .status-not-allowed {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .exam-actions {
+        margin-top: 15px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 5px;
+        font-weight: bold;
+        transition: all 0.3s;
+      }
+      .btn-primary {
+        background: #007bff;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #0056b3;
+      }
+      .btn-secondary {
+        background: #6c757d;
+        color: white;
+      }
+      .btn-secondary:hover {
+        background: #545b62;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+      }
+      .stat-card {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+      }
+      .stat-number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #007bff;
+      }
+      .stat-label {
+        color: #666;
+        margin-top: 5px;
+      }
+      .score-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 14px;
+      }
+      .score-good {
+        background: #d4edda;
+        color: #155724;
+      }
+      .score-ok {
+        background: #fff3cd;
+        color: #856404;
+      }
+      .score-poor {
+        background: #f8d7da;
+        color: #721c24;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="dashboard-header">
+        <div class="user-info">
+          <div>
+            <h1 style="margin: 0;">Student Dashboard</h1>
+            <p style="margin: 10px 0 0 0;">Welcome, {{ student_id }}</p>
+          </div>
+          <div>
+            <a href="/student/results" class="logout-btn" style="margin-right: 10px;">📊 My Results</a>
+            <a href="/logout" class="logout-btn">Logout</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="section">
+        <h2>Quick Stats</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-number">{{ sessions|selectattr('is_allowed')|list|length }}</div>
+            <div class="stat-label">Available Exams</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ sessions|selectattr('has_taken')|list|length }}</div>
+            <div class="stat-label">Completed Exams</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ sessions|length }}</div>
+            <div class="stat-label">Total Exams</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Available Exams -->
+      <div class="section">
+        <h2>📝 Available Exams</h2>
+        {% set available_exams = sessions|selectattr('is_allowed')|rejectattr('has_taken')|list %}
+        {% if available_exams %}
+          <div class="exam-grid">
+            {% for session in available_exams %}
+              <div class="exam-card available">
+                <div class="exam-title">{{ session.exam_name }}</div>
+                <div class="exam-info">📚 Subject: {{ session.subject }}</div>
+                <div class="exam-info">⏱️ Duration: {{ session.duration }} minutes</div>
+                <div class="exam-info">📅 Created: {{ session.created_at[:16] if session.created_at else 'N/A' }}</div>
+                <span class="exam-status status-available">Available</span>
+                <div class="exam-actions">
+                  <a href="/view/{{ session.session_id }}" class="btn btn-primary">Start Exam</a>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p>No exams available at the moment</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Completed Exams -->
+      <div class="section">
+        <h2>✅ Completed Exams</h2>
+        {% set completed_exams = sessions|selectattr('has_taken')|list %}
+        {% if completed_exams %}
+          <div class="exam-grid">
+            {% for session in completed_exams %}
+              <div class="exam-card completed">
+                <div class="exam-title">{{ session.exam_name }}</div>
+                <div class="exam-info">📚 Subject: {{ session.subject }}</div>
+                <div class="exam-info">⏱️ Duration: {{ session.duration }} minutes</div>
+                {% if session.score %}
+                  <div class="exam-info">
+                    Score:
+                    {% set score_val = session.score|float %}
+                    {% if score_val >= 60 %}
+                      <span class="score-badge score-good">{{ session.score }}</span>
+                    {% elif score_val >= 40 %}
+                      <span class="score-badge score-ok">{{ session.score }}</span>
+                    {% else %}
+                      <span class="score-badge score-poor">{{ session.score }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+                <span class="exam-status status-completed">Completed</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p>You haven't completed any exams yet</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Not Allowed Exams (Hidden from students, shown for debugging) -->
+      {% if sessions|rejectattr('is_allowed')|list|length > 0 %}
+        <!-- Students can't see exams they're not allowed to take -->
+      {% endif %}
+
+    </div>
+  </body>
+</html>
