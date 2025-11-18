@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import List
 import uuid
 
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify, session, flash
+from functools import wraps
 
 # Add web directory to Python path for utils import
 APP_ROOT = Path(__file__).resolve().parent
@@ -26,6 +27,14 @@ except ImportError:
     CSVManager = None
     CSVValidationError = Exception
     print("WARNING: CSV v2.0 manager not available, using legacy mode")
+
+# Import robust LaTeX compiler
+try:
+    from utils.robust_latex_compiler import compile_latex_robust, CompilationResult
+    ROBUST_COMPILER_AVAILABLE = True
+except ImportError:
+    ROBUST_COMPILER_AVAILABLE = False
+    print("WARNING: Robust LaTeX compiler not available, using basic compiler")
 
 
 REPO_ROOT = APP_ROOT.parent
@@ -76,17 +85,58 @@ def render_snippet_tex(content: str) -> str:
 
 
 def compile_and_crop_snippet(content: str, out_dir: Path, idx: int) -> Path:
+    """
+    Compile LaTeX snippet to PDF using robust compiler
+    Falls back to basic compiler if robust version unavailable
+    """
+    latex_content = render_snippet_tex(content)
+    filename = f"snippet_{idx}"
+
+    # Try robust compiler first
+    if ROBUST_COMPILER_AVAILABLE:
+        result = compile_latex_robust(
+            latex_content,
+            out_dir,
+            filename=filename,
+            validate=True  # Enable pre-compilation validation
+        )
+
+        if result.success:
+            # Log any warnings
+            if result.warnings:
+                print(f"⚠️  Snippet {idx} compiled with warnings:")
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    print(f"   - {warning[:100]}")
+
+            return result.pdf_path
+
+        else:
+            # Compilation failed with robust compiler
+            error_msg = result.error_message or "Unknown error"
+            print(f"❌ Robust compilation failed for snippet {idx}: {error_msg}")
+
+            # Try basic compiler as fallback
+            print(f"🔄 Trying basic compiler for snippet {idx}...")
+
+    # Fallback to basic compiler (original implementation)
     with tempfile.TemporaryDirectory() as td:
         tdir = Path(td)
-        tex_path = tdir / f"snippet_{idx}.tex"
-        tex_path.write_text(render_snippet_tex(content), encoding="utf-8")
-        for _ in range(2):
-            run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex_path.name], cwd=tdir)
-        pdf_path = tdir / f"snippet_{idx}.pdf"
+        tex_path = tdir / f"{filename}.tex"
+        tex_path.write_text(latex_content, encoding="utf-8")
+
+        try:
+            for _ in range(2):
+                run(["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex_path.name], cwd=tdir)
+        except RuntimeError as e:
+            # Even basic compiler failed
+            raise RuntimeError(f"LaTeX compilation failed for snippet {idx}: {str(e)}")
+
+        pdf_path = tdir / f"{filename}.pdf"
         if not pdf_path.exists():
-            raise RuntimeError("PDF not produced for snippet")
-        # No cropping: copy compiled PDF directly into session output dir
-        final_pdf = out_dir / f"snippet_{idx}.pdf"
+            raise RuntimeError(f"PDF not produced for snippet {idx}")
+
+        # Copy PDF to output directory
+        final_pdf = out_dir / f"{filename}.pdf"
         import shutil as _sh
         _sh.copy2(pdf_path, final_pdf)
         return final_pdf
@@ -103,18 +153,211 @@ def ensure_clean_session_dir(session_id: str) -> Path:
 
 app = Flask(__name__, template_folder=str(APP_ROOT / "templates"), static_folder=str(APP_ROOT / "static"))
 
+# Set secret key for session management
+# In production, use environment variable
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
+
+# Admin student ID
+ADMIN_STUDENT_ID = "ASw527174888*"
+
 # Get port from environment variable, default to 5000
 PORT = int(os.environ.get("PORT", 5000))
 # Get host from environment variable, default to 0.0.0.0
 HOST = os.environ.get("HOST", "0.0.0.0")
 
 
+# Authentication decorators
+def admin_required(f):
+    """Decorator to require admin access"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('student_id'):
+            flash('Please login to access this page', 'error')
+            return redirect(url_for('login'))
+        if session.get('student_id') != ADMIN_STUDENT_ID:
+            flash('Admin access required', 'error')
+            return redirect(url_for('student_dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def login_required(f):
+    """Decorator to require any login (student or admin)"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('student_id'):
+            flash('Please login to access this page', 'error')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 @app.route("/")
+def index():
+    """Landing page - redirects based on login status"""
+    if session.get('student_id'):
+        if session.get('student_id') == ADMIN_STUDENT_ID:
+            return redirect(url_for('input_page'))
+        else:
+            return redirect(url_for('student_dashboard'))
+    return redirect(url_for('login'))
+
+
+@app.route("/login", methods=['GET', 'POST'])
+def login():
+    """Login page for students and admin"""
+    if request.method == 'POST':
+        student_id = request.form.get('student_id', '').strip()
+
+        if not student_id:
+            flash('Please enter a student ID', 'error')
+            return render_template("login.html")
+
+        # Store student ID in session
+        session['student_id'] = student_id
+        session['is_admin'] = (student_id == ADMIN_STUDENT_ID)
+
+        flash(f'Welcome, {student_id}!', 'success')
+
+        # Redirect based on role
+        if session['is_admin']:
+            return redirect(url_for('input_page'))
+        else:
+            return redirect(url_for('student_dashboard'))
+
+    # GET request - show login form
+    # If already logged in, redirect
+    if session.get('student_id'):
+        if session.get('is_admin'):
+            return redirect(url_for('input_page'))
+        else:
+            return redirect(url_for('student_dashboard'))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    """Logout user"""
+    session.clear()
+    flash('You have been logged out', 'info')
+    return redirect(url_for('login'))
+
+
+@app.route("/admin")
+@admin_required
 def input_page():
+    """Admin input page for creating exams"""
     return render_template("input.html")
 
 
+@app.route("/student/dashboard")
+@login_required
+def student_dashboard():
+    """Student dashboard - shows available exams and exam history"""
+    student_id = session.get('student_id')
+
+    # Get all sessions
+    sessions_list = []
+    if SESSIONS_DIR.exists():
+        for session_file in sorted(SESSIONS_DIR.glob("*.csv"), reverse=True):
+            session_id = session_file.stem.replace("session_", "")
+
+            # Get session metadata
+            metadata = get_session_metadata(session_id)
+
+            # Check if student is allowed
+            allowed_students = get_allowed_students(session_id)
+            is_allowed = (allowed_students == ["ALL"] or student_id in allowed_students)
+
+            # Check if student has taken this exam
+            has_taken = False
+            student_score = None
+            if is_allowed:
+                answers_file = ANSWERS_DIR / f"answers_{session_id}.csv"
+                if answers_file.exists():
+                    try:
+                        with open(answers_file, 'r', encoding='utf-8') as f:
+                            reader = csv.reader(f)
+                            header = next(reader, None)
+                            if header:
+                                for row in reader:
+                                    if row and row[0] == student_id:
+                                        has_taken = True
+                                        # Try to get score (last column is usually score)
+                                        if len(row) > 1 and row[-1].replace('.', '').isdigit():
+                                            student_score = row[-1]
+                                        break
+                    except Exception as e:
+                        print(f"Error reading answers for {session_id}: {e}")
+
+            sessions_list.append({
+                'session_id': session_id,
+                'exam_name': metadata.get('exam_name', 'Untitled Exam'),
+                'subject': metadata.get('subject', 'General'),
+                'duration': metadata.get('duration_minutes', '25'),
+                'created_at': metadata.get('created_at', ''),
+                'is_allowed': is_allowed,
+                'has_taken': has_taken,
+                'score': student_score
+            })
+
+    return render_template("student_dashboard.html",
+                         student_id=student_id,
+                         sessions=sessions_list)
+
+
+@app.route("/student/results")
+@login_required
+def student_results():
+    """Student results page - detailed exam history and scores"""
+    student_id = session.get('student_id')
+
+    results = []
+
+    if ANSWERS_DIR.exists():
+        for answers_file in sorted(ANSWERS_DIR.glob("answers_*.csv"), reverse=True):
+            session_id = answers_file.stem.replace("answers_", "")
+
+            # Read student's answers from this session
+            try:
+                with open(answers_file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    header = next(reader, None)
+
+                    if not header:
+                        continue
+
+                    for row in reader:
+                        if row and row[0] == student_id:
+                            # Get metadata
+                            metadata = get_session_metadata(session_id)
+
+                            # Parse score (last column)
+                            score = row[-1] if len(row) > 1 else "N/A"
+
+                            # Get submission time (second column after student_id)
+                            submission_time = row[1] if len(row) > 1 else ""
+
+                            results.append({
+                                'session_id': session_id,
+                                'exam_name': metadata.get('exam_name', 'Untitled Exam'),
+                                'subject': metadata.get('subject', 'General'),
+                                'score': score,
+                                'submission_time': submission_time,
+                                'passing_percentage': metadata.get('passing_percentage', '40')
+                            })
+                            break
+            except Exception as e:
+                print(f"Error reading results for {session_id}: {e}")
+
+    return render_template("student_results.html",
+                         student_id=student_id,
+                         results=results)
+
+
 @app.post("/compile")
+@admin_required
 def compile_route():
     # inputs come as texts[]
     texts = request.form.getlist("texts[]")
@@ -238,8 +481,19 @@ def compile_route():
 
 
 @app.get("/view/<session_id>")
+@login_required
 def view_session(session_id: str):
-    """View questions for a specific session ID"""
+    """View questions for a specific session ID - requires login and whitelist check"""
+    student_id = session.get('student_id')
+    is_admin = session.get('is_admin', False)
+
+    # Check if student is allowed to access this exam
+    if not is_admin:
+        allowed_students = get_allowed_students(session_id)
+        if allowed_students != ["ALL"] and student_id not in allowed_students:
+            flash('You are not authorized to access this exam', 'error')
+            return redirect(url_for('student_dashboard'))
+
     pdf_out_dir = GENERATED_DIR / session_id / "pdfs"
 
     if not pdf_out_dir.exists():
@@ -320,6 +574,7 @@ def get_session_info(sess_dir: Path) -> dict:
 
 
 @app.get("/sessions")
+@admin_required
 def list_sessions():
     """List all available sessions"""
     sessions = []
@@ -357,6 +612,7 @@ def list_sessions():
 
 
 @app.get("/manage-sessions")
+@admin_required
 def manage_sessions():
     """Manage sessions - list all sessions with delete option"""
     sessions = []
@@ -383,6 +639,7 @@ def manage_sessions():
 
 
 @app.post("/delete-session/<session_id>")
+@admin_required
 def delete_session(session_id: str):
     """Delete a specific session"""
     try:
@@ -412,6 +669,7 @@ def delete_session(session_id: str):
 
 
 @app.post("/delete-all-sessions")
+@admin_required
 def delete_all_sessions():
     """Delete all sessions"""
     try:
@@ -454,6 +712,7 @@ def serve_generated(session_id: str, filename: str):
 
 
 @app.post("/start-session")
+@login_required
 def start_session():
     """Start an exam session for a student"""
     data = request.get_json()
@@ -508,6 +767,7 @@ def start_session():
 
 
 @app.post("/check-session")
+@login_required
 def check_session():
     """Check if a session exists and calculate remaining time"""
     data = request.get_json()
@@ -704,6 +964,7 @@ def calculate_marks(student_answers: dict, answer_key: str | None) -> dict:
 
 
 @app.post("/save-answers")
+@login_required
 def save_answers():
     """Save student answers to CSV file and calculate marks"""
     try:
@@ -804,6 +1065,7 @@ def save_answers():
 
 
 @app.get("/marks")
+@admin_required
 def marks_list():
     """List all sessions that have student submissions"""
     sessions_with_marks = []
@@ -855,6 +1117,7 @@ def marks_list():
 
 
 @app.get("/marks/<session_id>")
+@admin_required
 def view_marks(session_id: str):
     """View detailed marks for a specific session"""
     answers_file = ANSWERS_DIR / f"answers_{session_id}.csv"
@@ -979,6 +1242,7 @@ def view_marks(session_id: str):
 
 
 @app.get("/manage-students/<session_id>")
+@admin_required
 def manage_students(session_id: str):
     """View and manage allowed students for THIS SPECIFIC SESSION"""
     # Get session metadata
@@ -1019,6 +1283,7 @@ def manage_students(session_id: str):
 
 
 @app.post("/add-student/<session_id>")
+@admin_required
 def add_student(session_id: str):
     """Add a student to THIS SESSION's allowed list"""
     try:
@@ -1080,6 +1345,7 @@ def add_student(session_id: str):
 
 
 @app.post("/remove-student/<session_id>")
+@admin_required
 def remove_student(session_id: str):
     """Remove a student from THIS SESSION's allowed list"""
     try:

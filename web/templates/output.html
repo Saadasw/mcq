@@ -36,7 +36,7 @@
       <div id="message" class="message" style="display: none;"></div>
 
       <div class="grid">
-        {% set total_cells = 30 %}
+        {% set total_cells = num_questions %}
         {% for i in range(total_cells) %}
           <div class="cell" id="cell-{{ i }}">
             {% if i < pdf_urls|length %}
