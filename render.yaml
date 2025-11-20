@@ -6,8 +6,6 @@ services:
     dockerContext: .
     healthCheckPath: /health
     envVars:
-      - key: PORT
-        value: 5000
       - key: PYTHONUNBUFFERED
         value: 1
     autoDeploy: true
