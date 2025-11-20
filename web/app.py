@@ -822,7 +822,7 @@ def compile_route():
     pdf_out_dir = sess_dir / "pdfs"
 
     # Only compile if PDFs don't already exist (same questions for all users)
-    if not pdf_out_dir.exists() or not list(pdf_out_dir.glob("*.pdf")):
+    if not pdf_out_dir.exists() or not list(pdf_out_dir.glob("snippet_*.pdf")):
         ensure_clean_session_dir(session_id)
         pdf_out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1060,8 +1060,8 @@ def get_session_info(sess_dir: Path) -> dict:
     pdf_dir = sess_dir / "pdfs"
     if not pdf_dir.exists():
         return None
-    
-    pdf_count = len(list(pdf_dir.glob("*.pdf")))
+
+    pdf_count = len(list(pdf_dir.glob("snippet_*.pdf")))
     if pdf_count == 0:
         return None
     
@@ -1880,7 +1880,7 @@ def manage_students(session_id: str):
 
     # Check if this session has questions
     pdf_dir = GENERATED_DIR / session_id / "pdfs"
-    session_exists = pdf_dir.exists() and list(pdf_dir.glob("*.pdf"))
+    session_exists = pdf_dir.exists() and list(pdf_dir.glob("snippet_*.pdf"))
 
     return render_template(
         "manage_students.html",
