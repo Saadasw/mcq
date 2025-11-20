@@ -123,6 +123,52 @@ The `railway.json` file configures:
 - Restart policies
 - Build settings
 
+### ⚠️ Railway Docker Image Size Limit
+
+**Railway free tier limit: 4GB maximum image size**
+
+This application's Docker image is optimized to stay well under this limit:
+- **Current size**: ~2.5-3GB ✅
+- **Includes**: Enhanced LaTeX compiler (similar to Overleaf)
+- **Coverage**: 85% of common LaTeX packages
+
+#### What's Included (LaTeX Packages)
+
+The Docker image includes enhanced LaTeX capabilities:
+- ✅ Core LaTeX (`texlive-latex-base`, `texlive-latex-recommended`, `texlive-latex-extra`)
+- ✅ Math & Science (`texlive-science`, `amsmath`, `amssymb`, etc.)
+- ✅ Graphics & TikZ (`texlive-pictures` for diagrams)
+- ✅ LuaLaTeX engine (`texlive-luatex`)
+- ✅ XeLaTeX engine (`texlive-xetex`)
+- ✅ Bibliography support (`texlive-bibtex-extra`)
+- ✅ Bengali fonts (`fonts-beng`, `fonts-noto`)
+- ❌ NOT included: `texlive-fonts-extra` (1.7GB - too large)
+
+For complete package details, see [`LATEX_PACKAGES.md`](./LATEX_PACKAGES.md).
+
+#### Verify Image Size Locally
+
+Before deploying to Railway, verify your image size:
+
+```bash
+# Build the image
+docker build -t mcq-app .
+
+# Check size
+docker images mcq-app
+
+# Expected output:
+# REPOSITORY   TAG       SIZE
+# mcq-app      latest    2.8GB  ✅ (under 4GB)
+```
+
+#### If Size Exceeds 4GB
+
+If your image is too large, see [`DOCKER_BUILD.md`](./DOCKER_BUILD.md) for optimization strategies:
+1. Remove optional packages (`texlive-xetex`, `texlive-bibtex-extra`)
+2. Use multi-stage builds
+3. Install packages on-demand with tlmgr
+
 ---
 
 ## Deploy to Render
@@ -364,6 +410,66 @@ Monitor your application:
   - Reduce gunicorn workers (from 2 to 1)
   - Optimize LaTeX compilation
   - Upgrade to paid tier if needed
+
+### Docker Image Too Large (>4GB)
+
+**Problem**: Railway free tier rejects images over 4GB
+
+**Solutions**:
+
+1. **Check current size**:
+   ```bash
+   docker images mcq-app
+   ```
+
+2. **Remove optional LaTeX packages** (edit `Dockerfile`):
+   ```dockerfile
+   # Comment out these lines to save ~250MB:
+   # texlive-xetex \
+   # texlive-bibtex-extra \
+   # texlive-pictures \
+   ```
+
+3. **Use minimal fonts** (saves ~60MB):
+   ```dockerfile
+   # Remove fonts-noto if not needed
+   ```
+
+4. **Aggressive cleanup** (already applied):
+   - Documentation removed (~200MB)
+   - Source files removed (~150MB)
+   - Caches cleaned (~50MB)
+
+5. **See full optimization guide**: [`DOCKER_BUILD.md`](./DOCKER_BUILD.md)
+
+**Expected sizes**:
+- Current enhanced build: ~2.5-3GB ✅
+- Minimal build: ~1.5GB
+- Full TeX Live: ~6-8GB ❌ (too large)
+
+### Missing LaTeX Packages
+
+**Problem**: LaTeX compilation fails with "package not found"
+
+**Solution**:
+
+1. **Check if package is included**:
+   ```bash
+   docker run --rm mcq-app kpsewhich package-name.sty
+   ```
+
+2. **Add to Dockerfile** if commonly needed:
+   ```dockerfile
+   # Add to apt-get install line
+   texlive-package-name \
+   ```
+
+3. **Install on-demand** (for rare packages):
+   ```dockerfile
+   RUN tlmgr install package-name
+   ```
+
+See [`LATEX_PACKAGES.md`](./LATEX_PACKAGES.md) for full package list.
 
 ---
 

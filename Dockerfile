@@ -1,27 +1,46 @@
 FROM python:3.11-slim
 
-# Install minimal TeX Live packages for MCQ application
-# Heavily optimized for image size (target: <4GB)
+# Install enhanced TeX Live packages for powerful LaTeX compilation
+# Optimized to stay under 4GB (similar to Overleaf capabilities)
+# Strategy: Add most commonly used packages while avoiding bloat
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core LaTeX (minimal)
+    # Core LaTeX
     texlive-latex-base \
     texlive-latex-recommended \
-    # Math packages (essential for MCQ)
+    texlive-latex-extra \
+    # Math & Science packages
     texlive-science \
-    # Minimal fonts
+    # Fonts (recommended only, extra is 1.7GB!)
     texlive-fonts-recommended \
     fonts-liberation \
-    # Bengali fonts (required for user)
+    # Bengali fonts (required)
     fonts-beng \
+    fonts-noto \
+    # LuaTeX engine (essential for lualatex)
+    texlive-luatex \
+    # XeTeX engine (modern font support)
+    texlive-xetex \
+    # Graphics & TikZ packages
+    texlive-pictures \
+    # Bibliography support
+    texlive-bibtex-extra \
     # Essential utilities
     ghostscript \
     poppler-utils \
-    # Cleanup in same layer
+    # Aggressive cleanup in same layer to reduce image size
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/share/doc/* \
     && rm -rf /usr/share/man/* \
-    && rm -rf /var/cache/apt/*
+    && rm -rf /usr/share/info/* \
+    && rm -rf /usr/share/locale/* \
+    && rm -rf /var/cache/apt/* \
+    && rm -rf /var/log/* \
+    # Remove TeX Live documentation (saves ~200-300MB)
+    && rm -rf /usr/share/texlive/texmf-dist/doc/* \
+    && rm -rf /usr/share/texmf/doc/* \
+    # Remove TeX Live source files
+    && rm -rf /usr/share/texlive/texmf-dist/source/*
 
 WORKDIR /app
 
