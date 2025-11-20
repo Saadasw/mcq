@@ -77,6 +77,10 @@ ACTIVITY_LOGS_DIR.mkdir(exist_ok=True)
 
 # Login sessions directory (for server-side session management)
 LOGIN_SESSIONS_DIR = APP_ROOT / "login_sessions"
+
+# Settings directory (for global application settings)
+SETTINGS_DIR = APP_ROOT / "settings"
+SETTINGS_DIR.mkdir(exist_ok=True)
 LOGIN_SESSIONS_DIR.mkdir(exist_ok=True)
 ACTIVE_SESSIONS_FILE = LOGIN_SESSIONS_DIR / "active_sessions.csv"
 
@@ -239,6 +243,52 @@ def cleanup_expired_sessions(timeout_hours: int = 24):
                 ])
     except Exception as e:
         print(f"Error cleaning up sessions: {e}")
+
+
+# Global settings management functions
+def get_auth_required() -> bool:
+    """
+    Check if authentication is required for the site
+    Returns True if auth is required (default), False if open access
+    """
+    settings_file = SETTINGS_DIR / "auth_settings.csv"
+
+    # Default to True (auth required) if file doesn't exist
+    if not settings_file.exists():
+        return True
+
+    try:
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('Setting') == 'auth_required':
+                    return row.get('Value', 'true').lower() == 'true'
+    except Exception as e:
+        print(f"Error reading auth settings: {e}")
+
+    return True  # Default to auth required
+
+
+def set_auth_required(required: bool):
+    """
+    Set whether authentication is required for the site
+    """
+    settings_file = SETTINGS_DIR / "auth_settings.csv"
+
+    try:
+        with open(settings_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Setting', 'Value', 'Updated_At', 'Updated_By'])
+            writer.writerow([
+                'auth_required',
+                'true' if required else 'false',
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                session.get('student_id', 'system')
+            ])
+        return True
+    except Exception as e:
+        print(f"Error writing auth settings: {e}")
+        return False
 
 
 def get_all_active_sessions() -> list:
@@ -582,9 +632,19 @@ def admin_required(f):
 
 
 def login_required(f):
-    """Decorator to require any login (student or admin)"""
+    """Decorator to require any login (student or admin) - bypassed if auth is disabled"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if authentication is required globally
+        if not get_auth_required():
+            # Auth is disabled, allow access without login
+            # Set a default guest session if none exists
+            if not session.get('student_id'):
+                session['student_id'] = 'guest'
+                session['is_admin'] = False
+            return f(*args, **kwargs)
+
+        # Auth is required, check for login
         if not session.get('student_id'):
             flash('Please login to access this page', 'error')
             return redirect(url_for('login'))
@@ -595,6 +655,10 @@ def login_required(f):
 @app.route("/")
 def index():
     """Landing page - redirects based on login status"""
+    # If auth is disabled, redirect to sessions list for everyone
+    if not get_auth_required():
+        return redirect(url_for('sessions_list'))
+
     if session.get('student_id'):
         if session.get('student_id') == ADMIN_STUDENT_ID:
             return redirect(url_for('input_page'))
@@ -980,7 +1044,8 @@ def view_session(session_id: str):
     is_admin = session.get('is_admin', False)
 
     # Check if student is allowed to access this exam
-    if not is_admin:
+    # Skip whitelist check if auth is globally disabled
+    if get_auth_required() and not is_admin:
         allowed_students = get_allowed_students(session_id)
         if allowed_students != ["ALL"] and student_id not in allowed_students:
             flash('You are not authorized to access this exam', 'error')
@@ -2099,6 +2164,31 @@ def view_activity_logs():
         total_sessions=total_sessions,
         total_submissions=total_submissions,
         unique_student_count=unique_student_count
+    )
+
+
+@app.route("/admin/settings", methods=['GET', 'POST'])
+@admin_required
+def admin_settings():
+    """Admin-only page to manage global application settings"""
+    if request.method == 'POST':
+        # Handle auth toggle
+        auth_enabled = request.form.get('auth_required') == 'on'
+        set_auth_required(auth_enabled)
+
+        if auth_enabled:
+            flash('✓ Authentication enabled - Login required for all users', 'success')
+        else:
+            flash('⚠️ Authentication disabled - Site is now publicly accessible without login', 'warning')
+
+        return redirect(url_for('admin_settings'))
+
+    # GET request - show current settings
+    auth_required = get_auth_required()
+
+    return render_template(
+        "admin_settings.html",
+        auth_required=auth_required
     )
 
 

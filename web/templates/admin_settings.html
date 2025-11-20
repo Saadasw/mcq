@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin Settings - MCQ Application</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+      .setting-card {
+        background: white;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+
+      .setting-card h3 {
+        margin-top: 0;
+        color: #333;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 60px;
+        height: 34px;
+      }
+
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: .4s;
+        border-radius: 34px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 26px;
+        width: 26px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+      }
+
+      input:checked + .slider {
+        background-color: #28a745;
+      }
+
+      input:focus + .slider {
+        box-shadow: 0 0 1px #28a745;
+      }
+
+      input:checked + .slider:before {
+        transform: translateX(26px);
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        margin-left: 10px;
+      }
+
+      .status-enabled {
+        background: #d4edda;
+        color: #155724;
+      }
+
+      .status-disabled {
+        background: #fff3cd;
+        color: #856404;
+      }
+
+      .warning-box {
+        background: #fff3cd;
+        border: 2px solid #ffc107;
+        border-radius: 6px;
+        padding: 15px;
+        margin-top: 15px;
+      }
+
+      .warning-box strong {
+        color: #856404;
+      }
+
+      .info-box {
+        background: #d1ecf1;
+        border: 2px solid #17a2b8;
+        border-radius: 6px;
+        padding: 15px;
+        margin-top: 15px;
+      }
+
+      .save-btn {
+        background: #007bff;
+        color: white;
+        padding: 12px 30px;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+
+      .save-btn:hover {
+        background: #0056b3;
+      }
+
+      .flash-messages {
+        margin-bottom: 20px;
+      }
+
+      .flash-message {
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+      }
+
+      .flash-success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .flash-error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .flash-warning {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+          <h1 style="margin: 0;">⚙️ Admin Settings</h1>
+          <p style="margin: 10px 0 0 0; color: #666;">Manage global application settings</p>
+        </div>
+        <a href="/logout" style="padding: 8px 16px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px;">Logout</a>
+      </div>
+
+      <!-- Navigation -->
+      <div style="margin-bottom: 20px;">
+        <a href="/" style="margin-right: 10px; padding: 8px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">← Back to Admin Panel</a>
+        <a href="/sessions" style="margin-right: 10px; padding: 8px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">View All Sessions</a>
+        <a href="/marks" style="margin-right: 10px; padding: 8px 16px; background: #28a745; color: white; text-decoration: none; border-radius: 4px;">📊 View Marks</a>
+        <a href="/admin/login-sessions" style="margin-right: 10px; padding: 8px 16px; background: #17a2b8; color: white; text-decoration: none; border-radius: 4px;">👥 Login Sessions</a>
+        <a href="/admin/activity-logs" style="padding: 8px 16px; background: #6f42c1; color: white; text-decoration: none; border-radius: 4px;">🔍 Activity Logs</a>
+      </div>
+
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-messages">
+            {% for category, message in messages %}
+              <div class="flash-message flash-{{ category }}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <!-- Settings Form -->
+      <form method="POST" action="/admin/settings">
+        <!-- Authentication Setting -->
+        <div class="setting-card">
+          <h3>
+            🔐 Authentication Control
+            {% if auth_required %}
+              <span class="status-badge status-enabled">ENABLED</span>
+            {% else %}
+              <span class="status-badge status-disabled">DISABLED</span>
+            {% endif %}
+          </h3>
+
+          <p style="color: #666; margin-bottom: 20px;">
+            Control whether users need to log in to access the site and participate in exams.
+          </p>
+
+          <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+            <label class="toggle-switch">
+              <input type="checkbox" name="auth_required" {% if auth_required %}checked{% endif %} onchange="updateAuthStatus(this.checked)">
+              <span class="slider"></span>
+            </label>
+            <div>
+              <strong id="auth-status-text">
+                {% if auth_required %}
+                  Authentication Required
+                {% else %}
+                  Open Access (No Login Required)
+                {% endif %}
+              </strong>
+              <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;" id="auth-status-desc">
+                {% if auth_required %}
+                  Users must log in with a student ID to access sessions
+                {% else %}
+                  Anyone can access all sessions without logging in
+                {% endif %}
+              </p>
+            </div>
+          </div>
+
+          {% if not auth_required %}
+            <div class="warning-box">
+              <strong>⚠️ Warning:</strong> Authentication is currently DISABLED.<br>
+              • Anyone with the site URL can view all exam sessions<br>
+              • No student ID is required to participate in exams<br>
+              • Answer submissions will be recorded as "guest" user<br>
+              • Enable authentication to restrict access to authorized students only
+            </div>
+          {% else %}
+            <div class="info-box">
+              <strong>ℹ️ Info:</strong> Authentication is currently ENABLED.<br>
+              • Students must log in with their student ID<br>
+              • Access can be restricted per exam using whitelists<br>
+              • All activities are tracked with student IDs<br>
+              • Disable authentication to allow anyone to access the site
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Future settings can be added here -->
+        <div class="setting-card" style="background: #f8f9fa; border-style: dashed;">
+          <h3 style="color: #999;">🔧 More Settings Coming Soon</h3>
+          <p style="color: #999;">
+            Additional configuration options will be added here in future updates.
+          </p>
+        </div>
+
+        <!-- Save Button -->
+        <div style="text-align: center; margin-top: 30px;">
+          <button type="submit" class="save-btn">💾 Save Settings</button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      function updateAuthStatus(isEnabled) {
+        const statusText = document.getElementById('auth-status-text');
+        const statusDesc = document.getElementById('auth-status-desc');
+
+        if (isEnabled) {
+          statusText.textContent = 'Authentication Required';
+          statusDesc.textContent = 'Users must log in with a student ID to access sessions';
+        } else {
+          statusText.textContent = 'Open Access (No Login Required)';
+          statusDesc.textContent = 'Anyone can access all sessions without logging in';
+        }
+      }
+    </script>
+  </body>
+</html>
