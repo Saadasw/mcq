@@ -1,0 +1,50 @@
+FROM python:3.11-slim
+
+# Minimal LaTeX setup for Render deployment (if enhanced version is too large)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core LaTeX
+    texlive-latex-base \
+    texlive-latex-recommended \
+    # Math packages
+    texlive-science \
+    # Minimal fonts
+    texlive-fonts-recommended \
+    fonts-liberation \
+    # Bengali fonts (required)
+    fonts-beng \
+    # LuaTeX engine
+    texlive-luatex \
+    # Essential utilities
+    ghostscript \
+    poppler-utils \
+    # Aggressive cleanup
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/share/doc/* \
+    && rm -rf /usr/share/man/* \
+    && rm -rf /var/cache/apt/*
+
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Copy and set execute permissions for startup script
+COPY --chmod=755 start.sh /app/start.sh
+
+# Create necessary directories
+RUN mkdir -p web/generated web/answers web/sessions web/answer_keys
+
+# Expose port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; import os; port=os.environ.get('PORT', '5000'); urllib.request.urlopen(f'http://localhost:{port}/health')" || exit 1
+
+# Use startup script
+CMD ["/app/start.sh"]
