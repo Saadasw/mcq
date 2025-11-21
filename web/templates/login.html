@@ -88,8 +88,8 @@
   </head>
   <body>
     <div class="login-container">
-      <h1 style="text-align: center; color: #333;">MCQ Exam System</h1>
-      <p style="text-align: center; color: #666;">Enter your Student ID to login</p>
+      <h1 style="text-align: center; color: #333;">🔐 Admin Login</h1>
+      <p style="text-align: center; color: #666;">Administrator Access Only</p>
 
       <!-- Flash messages -->
       {% with messages = get_flashed_messages(with_categories=true) %}
@@ -104,23 +104,28 @@
 
       <form class="login-form" method="POST" action="/login">
         <div class="form-group">
-          <label for="student_id">Student ID</label>
+          <label for="student_id">Admin ID</label>
           <input
             type="text"
             id="student_id"
             name="student_id"
-            placeholder="Enter your student ID"
+            placeholder="Enter admin ID"
             required
             autofocus
           />
         </div>
 
-        <button type="submit" class="btn-login">Login</button>
+        <button type="submit" class="btn-login">Login as Admin</button>
       </form>
 
-      <div class="info-text">
-        <strong>For Students:</strong> Enter your student ID to access exams and view your results.<br><br>
-        <strong>For Admin:</strong> Login with admin student ID to create and manage exams.
+      <div class="info-text" style="background: #e7f3ff; border: 2px solid #007bff;">
+        <strong>ℹ️ Public Access:</strong> Students don't need to log in!<br><br>
+        Anyone can <a href="/" style="color: #007bff; font-weight: bold;">access exams directly</a> without an account.<br><br>
+        <strong>This page is for administrators only</strong> to create and manage exams.
+      </div>
+
+      <div style="text-align: center; margin-top: 20px;">
+        <a href="/" style="color: #007bff; text-decoration: none; font-weight: bold;">← Back to Exams</a>
       </div>
     </div>
   </body>
