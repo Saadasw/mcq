@@ -106,15 +106,26 @@
     </div>
 
     <script>
+      console.log('Script loading...');
+
       const makeBtn = document.getElementById('make');
       const countEl = document.getElementById('count');
       const inputs = document.getElementById('inputs');
       const correctAnswersInput = document.getElementById('correct-answers');
       const form = document.getElementById('snippet-form');
-      
+
+      console.log('Elements found:', { makeBtn, countEl, inputs, correctAnswersInput, form });
+
+      if (!makeBtn || !countEl || !inputs) {
+        console.error('Required elements not found!');
+        alert('Error: Required elements not found. Please contact support.');
+      }
+
       makeBtn.addEventListener('click', (e) => {
         e.preventDefault();
+        console.log('Button clicked! Count value:', countEl.value);
         const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        console.log('Creating', n, 'question inputs...');
         inputs.innerHTML = '';
         for (let i = 1; i <= n; i++) {
           const wrapper = document.createElement('div');
@@ -159,6 +170,7 @@
           wrapper.appendChild(ta);
           inputs.appendChild(wrapper);
         }
+        console.log('Created', n, 'question input fields successfully');
         // Update placeholder and validation for correct answers
         updateCorrectAnswersPlaceholder();
       });
@@ -216,9 +228,16 @@
       
       // Update placeholder when count changes
       countEl.addEventListener('change', updateCorrectAnswersPlaceholder);
-      
+
       // initialize
-      makeBtn.click();
+      console.log('Auto-initializing question inputs...');
+      try {
+        makeBtn.click();
+        console.log('Initialization complete!');
+      } catch (error) {
+        console.error('Error during initialization:', error);
+        alert('Error initializing form. Please refresh the page or contact support.');
+      }
     </script>
   </body>
   </html>
