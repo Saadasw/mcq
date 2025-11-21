@@ -84,7 +84,7 @@
           <input id="count" type="number" min="1" max="40" value="4" />
           <button id="make" type="button">Create Question Inputs</button>
 
-          <div id="inputs" class="inputs"></div>
+          <div id="inputs" style="margin-top: 20px; width: 100%;"></div>
         </div>
 
         <div class="form-group" style="margin-top: 20px;">
@@ -121,6 +121,41 @@
         alert('Error: Required elements not found. Please contact support.');
       }
 
+      // Function to handle image upload and LaTeX extraction
+      async function handleImageUpload(event, textarea, statusDiv) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        statusDiv.textContent = '⏳ Uploading and analyzing image...';
+        statusDiv.style.color = '#007bff';
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+          const response = await fetch('/extract-latex', {
+            method: 'POST',
+            body: formData
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            textarea.value = data.latex_code;
+            statusDiv.textContent = '✅ LaTeX extracted successfully!';
+            statusDiv.style.color = '#28a745';
+            setTimeout(() => { statusDiv.textContent = ''; }, 5000);
+          } else {
+            statusDiv.textContent = '❌ Error: ' + (data.error || 'Failed to extract LaTeX');
+            statusDiv.style.color = '#dc3545';
+          }
+        } catch (error) {
+          console.error('Upload error:', error);
+          statusDiv.textContent = '❌ Network error. Please try again.';
+          statusDiv.style.color = '#dc3545';
+        }
+      }
+
       makeBtn.addEventListener('click', (e) => {
         e.preventDefault();
         console.log('Button clicked! Count value:', countEl.value);
@@ -130,8 +165,18 @@
         for (let i = 1; i <= n; i++) {
           const wrapper = document.createElement('div');
           wrapper.className = 'snippet';
+          wrapper.style.padding = '15px';
+          wrapper.style.border = '1px solid #ddd';
+          wrapper.style.borderRadius = '8px';
+          wrapper.style.marginBottom = '15px';
+          wrapper.style.background = '#f9f9f9';
+
           const label = document.createElement('label');
           label.textContent = `Question ${i}`;
+          label.style.fontSize = '16px';
+          label.style.fontWeight = 'bold';
+          label.style.marginBottom = '10px';
+          label.style.display = 'block';
 
           // Image URL input section
           const imageLabel = document.createElement('label');
@@ -162,15 +207,66 @@
           ta.name = 'texts[]';
           ta.rows = 5;
           ta.placeholder = 'Enter LaTeX body...';
+          ta.style.width = '100%';
+          ta.style.padding = '8px';
+          ta.style.border = '1px solid #ccc';
+          ta.style.borderRadius = '6px';
+          ta.style.fontFamily = 'monospace';
+          ta.style.fontSize = '14px';
+          ta.style.marginTop = '5px';
+
+          // Image upload button for AI extraction
+          const uploadContainer = document.createElement('div');
+          uploadContainer.style.marginTop = '10px';
+          uploadContainer.style.marginBottom = '10px';
+
+          const uploadBtn = document.createElement('button');
+          uploadBtn.type = 'button';
+          uploadBtn.textContent = '📷 Upload Image & Extract LaTeX';
+          uploadBtn.style.padding = '8px 16px';
+          uploadBtn.style.background = '#17a2b8';
+          uploadBtn.style.color = 'white';
+          uploadBtn.style.border = 'none';
+          uploadBtn.style.borderRadius = '4px';
+          uploadBtn.style.cursor = 'pointer';
+          uploadBtn.style.fontSize = '14px';
+
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = 'image/*';
+          fileInput.style.display = 'none';
+
+          const statusDiv = document.createElement('div');
+          statusDiv.style.marginTop = '5px';
+          statusDiv.style.fontSize = '13px';
+          statusDiv.style.color = '#666';
+
+          uploadBtn.addEventListener('click', () => fileInput.click());
+          fileInput.addEventListener('change', (e) => handleImageUpload(e, ta, statusDiv));
+
+          uploadContainer.appendChild(uploadBtn);
+          uploadContainer.appendChild(fileInput);
+          uploadContainer.appendChild(statusDiv);
 
           wrapper.appendChild(label);
           wrapper.appendChild(imageLabel);
           wrapper.appendChild(imageUrlInput);
           wrapper.appendChild(textLabel);
           wrapper.appendChild(ta);
+          wrapper.appendChild(uploadContainer);
           inputs.appendChild(wrapper);
+
+          console.log(`Question ${i} created:`, {
+            hasTextarea: !!ta,
+            textareaName: ta.name,
+            textareaRows: ta.rows,
+            textareaInWrapper: wrapper.contains(ta),
+            wrapperInInputs: inputs.contains(wrapper)
+          });
         }
         console.log('Created', n, 'question input fields successfully');
+        console.log('Total children in inputs div:', inputs.children.length);
+        console.log('Total textareas:', inputs.querySelectorAll('textarea').length);
         // Update placeholder and validation for correct answers
         updateCorrectAnswersPlaceholder();
       });
