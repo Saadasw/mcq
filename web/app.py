@@ -14,6 +14,9 @@ import uuid
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, jsonify, session, flash
 from functools import wraps
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 
 # Add web directory to Python path for utils import
 APP_ROOT = Path(__file__).resolve().parent
@@ -606,6 +609,38 @@ PORT = int(os.environ.get("PORT", 5000))
 # Get host from environment variable, default to 0.0.0.0
 HOST = os.environ.get("HOST", "0.0.0.0")
 
+# ==================== SECURITY CONFIGURATION ====================
+
+# Rate Limiting - Protect against abuse and DDoS
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per hour", "50 per minute"],
+    storage_uri="memory://",  # Use memory storage (Redis recommended for production)
+    strategy="fixed-window"
+)
+
+# Security Headers - Protect against common web vulnerabilities
+# Disable in development if needed
+is_production = os.environ.get("FLASK_ENV") != "development"
+if is_production:
+    Talisman(
+        app,
+        force_https=False,  # Render handles HTTPS
+        content_security_policy={
+            'default-src': "'self'",
+            'script-src': ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'img-src': ["'self'", "data:", "https:"],
+            'font-src': ["'self'", "data:"],
+            'frame-src': ["'self'"],
+        },
+        content_security_policy_nonce_in=['script-src']
+    )
+
+# Request size limit (10MB max to prevent memory attacks)
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB
+
 
 # Middleware to update session activity on each request
 @app.before_request
@@ -631,105 +666,79 @@ def admin_required(f):
     return decorated_function
 
 
-def login_required(f):
-    """Decorator to require any login (student or admin) - bypassed if auth is disabled"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Check if authentication is required globally
-        if not get_auth_required():
-            # Auth is disabled, allow access without login
-            # Set a default guest session if none exists
-            if not session.get('student_id'):
-                session['student_id'] = 'guest'
-                session['is_admin'] = False
-            return f(*args, **kwargs)
-
-        # Auth is required, check for login
-        if not session.get('student_id'):
-            flash('Please login to access this page', 'error')
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
 @app.route("/")
+@limiter.limit("100 per minute")
 def index():
-    """Landing page - redirects based on login status"""
-    # If auth is disabled, redirect to sessions list for everyone
-    if not get_auth_required():
-        return redirect(url_for('sessions_list'))
+    """Landing page - Shows all available exam sessions (public access)"""
+    # Check if user is logged in as admin
+    if session.get('student_id') == ADMIN_STUDENT_ID:
+        return redirect(url_for('input_page'))
 
-    if session.get('student_id'):
-        if session.get('student_id') == ADMIN_STUDENT_ID:
-            return redirect(url_for('input_page'))
-        else:
-            return redirect(url_for('student_dashboard'))
-    return redirect(url_for('login'))
+    # For everyone else (including guests), show public sessions list
+    return redirect(url_for('sessions_list'))
 
 
 @app.route("/login", methods=['GET', 'POST'])
+@limiter.limit("10 per minute")  # Prevent brute force attacks
 def login():
-    """Login page for students and admin"""
+    """Admin-only login page - Public users don't need to log in"""
     if request.method == 'POST':
-        student_id = request.form.get('student_id', '').strip()
+        admin_id = request.form.get('student_id', '').strip()
 
-        if not student_id:
-            flash('Please enter a student ID', 'error')
-            return render_template("login.html")
+        if not admin_id:
+            flash('Please enter admin ID', 'error')
+            return render_template("login.html", admin_only=True)
 
-        # Check for concurrent sessions (optional - prevent multiple logins)
-        existing_sessions = get_student_active_sessions(student_id)
+        # Only allow admin login
+        if admin_id != ADMIN_STUDENT_ID:
+            flash('Invalid admin credentials', 'error')
+            return render_template("login.html", admin_only=True)
+
+        # Check for concurrent sessions
+        existing_sessions = get_student_active_sessions(admin_id)
         if existing_sessions:
             # Terminate old sessions
             for old_session in existing_sessions:
                 terminate_login_session(old_session['Session_ID'])
 
-        # Store student ID in Flask session (client-side cookie)
-        session['student_id'] = student_id
-        session['is_admin'] = (student_id == ADMIN_STUDENT_ID)
+        # Store admin ID in Flask session
+        session['student_id'] = admin_id
+        session['is_admin'] = True
 
         # Create server-side session in CSV
-        login_session_id = create_login_session(student_id, session['is_admin'])
+        login_session_id = create_login_session(admin_id, True)
         session['login_session_id'] = login_session_id
 
-        # Cleanup old expired sessions periodically
+        # Cleanup old expired sessions
         cleanup_expired_sessions(timeout_hours=24)
 
         # Log login activity
         log_student_activity(
-            student_id=student_id,
+            student_id=admin_id,
             activity_type='login',
-            details=f"{'Admin' if session['is_admin'] else 'Student'} login successful - Session: {login_session_id[:16]}"
+            details=f"Admin login successful - Session: {login_session_id[:16]}"
         )
 
-        flash(f'Welcome, {student_id}!', 'success')
+        flash(f'Welcome, Admin!', 'success')
+        return redirect(url_for('input_page'))
 
-        # Redirect based on role
-        if session['is_admin']:
-            return redirect(url_for('input_page'))
-        else:
-            return redirect(url_for('student_dashboard'))
+    # GET request - show admin login form
+    # If already logged in as admin, redirect
+    if session.get('student_id') == ADMIN_STUDENT_ID:
+        return redirect(url_for('input_page'))
 
-    # GET request - show login form
-    # If already logged in, redirect
-    if session.get('student_id'):
-        if session.get('is_admin'):
-            return redirect(url_for('input_page'))
-        else:
-            return redirect(url_for('student_dashboard'))
-
-    return render_template("login.html")
+    return render_template("login.html", admin_only=True)
 
 
 @app.route("/logout")
 def logout():
-    """Logout user"""
+    """Logout admin"""
     # Log logout activity and terminate server-side session
     if session.get('student_id'):
         log_student_activity(
             student_id=session.get('student_id'),
             activity_type='logout',
-            details='User logged out'
+            details='Admin logged out'
         )
 
         # Terminate server-side session
@@ -738,7 +747,7 @@ def logout():
 
     session.clear()
     flash('You have been logged out', 'info')
-    return redirect(url_for('login'))
+    return redirect(url_for('index'))
 
 
 @app.route("/admin")
@@ -748,14 +757,15 @@ def input_page():
     return render_template("input.html")
 
 
-@app.route("/student/dashboard")
-@login_required
-def student_dashboard():
-    """Student dashboard - shows available exams and exam history"""
-    student_id = session.get('student_id')
+@app.route("/sessions-list")
+@app.route("/student/dashboard")  # Keep old route for compatibility
+@limiter.limit("100 per minute")
+def sessions_list():
+    """Public sessions list - shows all available exams (no login required)"""
+    student_id = session.get('student_id', 'guest')  # Default to guest if not logged in
 
     # Get all exams from normalized CSV
-    sessions_list = []
+    exams_list = []
 
     if NormalizedCSVDB:
         # Get all active exams
@@ -764,14 +774,11 @@ def student_dashboard():
         for exam in exams:
             exam_id = exam['exam_id']
 
-            # Check if student is allowed
-            allowed_students = NormalizedCSVDB.get_allowed_students(exam_id)
-            is_allowed = (allowed_students == ['ALL'] or student_id in allowed_students)
-
+            # Public access - everyone can see all exams
             # Check if student has taken this exam
             has_taken = False
             student_score = None
-            if is_allowed:
+            if student_id != 'guest':
                 submission = NormalizedCSVDB.get_submission(exam_id, student_id)
                 if submission:
                     has_taken = True
@@ -787,20 +794,21 @@ def student_dashboard():
                     except:
                         student_score = f"{submission['score']}/{submission['total_marks']}"
 
-            sessions_list.append({
+            exams_list.append({
                 'session_id': exam_id,
                 'exam_name': exam.get('exam_name', 'Untitled Exam'),
                 'subject': exam.get('subject', 'General'),
                 'duration': exam.get('duration_minutes', '25'),
                 'created_at': exam.get('created_at', ''),
-                'is_allowed': is_allowed,
+                'is_allowed': True,  # Everyone allowed in public mode
                 'has_taken': has_taken,
                 'score': student_score
             })
 
     return render_template("student_dashboard.html",
                          student_id=student_id,
-                         sessions=sessions_list)
+                         sessions=exams_list,
+                         public_mode=True)
 
 
 @app.route("/student/results")
@@ -1037,19 +1045,13 @@ def compile_route():
 
 
 @app.get("/view/<session_id>")
-@login_required
+@limiter.limit("50 per minute")
 def view_session(session_id: str):
-    """View questions for a specific session ID - requires login and whitelist check"""
-    student_id = session.get('student_id')
+    """View questions for a specific session ID - Public access, no login required"""
+    student_id = session.get('student_id', 'guest')  # Default to guest if not logged in
     is_admin = session.get('is_admin', False)
 
-    # Check if student is allowed to access this exam
-    # Skip whitelist check if auth is globally disabled
-    if get_auth_required() and not is_admin:
-        allowed_students = get_allowed_students(session_id)
-        if allowed_students != ["ALL"] and student_id not in allowed_students:
-            flash('You are not authorized to access this exam', 'error')
-            return redirect(url_for('student_dashboard'))
+    # Public platform - everyone can access all exams
 
     pdf_out_dir = GENERATED_DIR / session_id / "pdfs"
 
@@ -1289,22 +1291,17 @@ def serve_generated(session_id: str, filename: str):
 
 
 @app.post("/start-session")
-@login_required
+@limiter.limit("20 per minute")
 def start_session():
-    """Start an exam session for a student"""
+    """Start an exam session - Public access, no login required"""
     data = request.get_json()
-    student_id = data.get("student_id", "").strip()
+    student_id = data.get("student_id", "").strip() or "guest"
     session_id = data.get("session_id", "").strip()
 
-    if not student_id or not session_id:
-        return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
+    if not session_id:
+        return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    # Check student whitelist from CSV file
-    if not is_student_allowed(session_id, student_id):
-        return jsonify({
-            "success": False,
-            "error": f"Student ID '{student_id}' is not authorized to take this exam. Please contact your instructor."
-        }), 403
+    # Public platform - no whitelist checking, everyone can take exams
 
     # Check if session already exists for this student
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
@@ -1360,15 +1357,15 @@ def start_session():
 
 
 @app.post("/check-session")
-@login_required
+@limiter.limit("60 per minute")
 def check_session():
-    """Check if a session exists and calculate remaining time"""
+    """Check if a session exists and calculate remaining time - Public access"""
     data = request.get_json()
-    student_id = data.get("student_id", "").strip()
+    student_id = data.get("student_id", "").strip() or "guest"
     session_id = data.get("session_id", "").strip()
 
-    if not student_id or not session_id:
-        return jsonify({"success": False, "error": "Missing student_id or session_id"}), 400
+    if not session_id:
+        return jsonify({"success": False, "error": "Missing session_id"}), 400
 
     sessions_file = SESSIONS_DIR / "exam_sessions.csv"
 
@@ -1580,19 +1577,16 @@ def calculate_marks(student_answers: dict, answer_key: str | None) -> dict:
 
 
 @app.post("/save-answers")
-@login_required
+@limiter.limit("10 per minute")  # Prevent spam submissions
 def save_answers():
-    """Save student answers to CSV file and calculate marks"""
+    """Save student answers to CSV file and calculate marks - Public access"""
     try:
         data = request.get_json()
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
 
-        # SECURITY FIX: Use logged-in student ID from session, not from request body
-        # This prevents students from impersonating others
-        student_id = session.get('student_id')
-        if not student_id:
-            return jsonify({"success": False, "error": "Not logged in"}), 401
+        # Get student ID from session, or use guest
+        student_id = session.get('student_id', 'guest')
 
         session_id = data.get("session_id", "").strip()
         answers = data.get("answers", {})
