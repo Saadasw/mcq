@@ -812,10 +812,10 @@ def sessions_list():
 
 
 @app.route("/student/results")
-@login_required
+@limiter.limit("50 per minute")
 def student_results():
-    """Student results page - detailed exam history and scores"""
-    student_id = session.get('student_id')
+    """Student results page - detailed exam history and scores - Public access"""
+    student_id = session.get('student_id', 'guest')
 
     results = []
 
