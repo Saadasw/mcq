@@ -169,13 +169,15 @@
       <div class="dashboard-header">
         <div class="user-info">
           <div>
-            <h1 style="margin: 0;">Student Dashboard</h1>
-            <p style="margin: 10px 0 0 0;">Welcome, {{ student_id }}</p>
+            <h1 style="margin: 0;">{% if student_id == 'guest' %}Available Exams{% else %}Student Dashboard{% endif %}</h1>
+            <p style="margin: 10px 0 0 0;">{% if student_id == 'guest' %}Welcome! Select an exam to start{% else %}Welcome, {{ student_id }}{% endif %}</p>
           </div>
+          {% if student_id != 'guest' %}
           <div>
             <a href="/student/results" class="logout-btn" style="margin-right: 10px;">📊 My Results</a>
             <a href="/logout" class="logout-btn">Logout</a>
           </div>
+          {% endif %}
         </div>
       </div>
 

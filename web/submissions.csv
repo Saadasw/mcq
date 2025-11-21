@@ -1,10 +1,1 @@
 submission_id,exam_id,student_id,submitted_at,score,total_marks,time_taken_seconds,ip_address,device_info,status
-1,session_079bc94e,23,2025-11-07 17:35:58,0,2,,,,completed
-2,session_079bc94e,wef,2025-11-07 23:28:08,1,2,,,,completed
-3,session_26d60f60,saad,2025-11-07 02:20:02,ক,খ,,,,completed
-4,session_4a7edf87,23,2025-11-07 04:53:53,1,5,,,,completed
-5,session_4a7edf87,23,2025-11-07 05:00:28,1,5,,,,completed
-6,session_4a7edf87,323,2025-11-07 05:04:27,1,5,,,,completed
-7,session_8ebac4ca,1,2025-11-07 17:17:46,1,1,,,,completed
-8,session_8ebac4ca,45,2025-11-07 17:18:17,0,1,,,,completed
-9,session_dfda4486,23,2025-11-06 19:07:04,খ,গ,,,,completed
