@@ -17,6 +17,16 @@ from functools import wraps
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
+from werkzeug.utils import secure_filename
+
+# Google Generative AI for LaTeX extraction from images
+try:
+    import google.generativeai as genai
+    from PIL import Image
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("WARNING: Google Generative AI SDK not available. Image-to-LaTeX feature disabled.")
 
 # Add web directory to Python path for utils import
 APP_ROOT = Path(__file__).resolve().parent
@@ -604,6 +614,19 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-producti
 # Admin student ID
 ADMIN_STUDENT_ID = "ASw527174888*"
 
+# Configure Gemini API for LaTeX extraction
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_AVAILABLE and GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        print("✅ Gemini API configured successfully")
+    except Exception as e:
+        print(f"⚠️ Failed to configure Gemini API: {e}")
+        GEMINI_AVAILABLE = False
+elif GEMINI_AVAILABLE and not GEMINI_API_KEY:
+    print("⚠️ GEMINI_API_KEY not set. Image-to-LaTeX feature will be disabled.")
+    GEMINI_AVAILABLE = False
+
 # Get port from environment variable, default to 5000
 PORT = int(os.environ.get("PORT", 5000))
 # Get host from environment variable, default to 0.0.0.0
@@ -755,6 +778,117 @@ def logout():
 def input_page():
     """Admin input page for creating exams"""
     return render_template("input.html")
+
+
+@app.route("/extract-latex", methods=['POST'])
+@admin_required
+@limiter.limit("10 per minute")  # Rate limit to prevent API abuse
+def extract_latex():
+    """Extract LaTeX code from uploaded question image using Gemini Vision API"""
+    if not GEMINI_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'Gemini API not configured. Please set GEMINI_API_KEY environment variable.'
+        }), 503
+
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'error': 'No image file provided'}), 400
+
+    image_file = request.files['image']
+    if image_file.filename == '':
+        return jsonify({'success': False, 'error': 'Empty filename'}), 400
+
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    filename = secure_filename(image_file.filename)
+    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({'success': False, 'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
+
+    try:
+        # Save uploaded image temporarily
+        temp_dir = tempfile.mkdtemp()
+        temp_path = os.path.join(temp_dir, filename)
+        image_file.save(temp_path)
+
+        # Upload to Gemini and analyze
+        print(f"📷 Analyzing image: {filename}")
+        uploaded_file = genai.upload_file(temp_path)
+
+        # Use Gemini Pro Vision model
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        # Prompt for LaTeX extraction
+        prompt = """
+Analyze this MCQ (Multiple Choice Question) test paper image and extract ONLY the LaTeX body code for ONE question.
+
+IMPORTANT INSTRUCTIONS:
+1. Extract text exactly (preserve Bengali/English characters)
+2. Convert all mathematical formulas to proper LaTeX syntax
+3. Use inline math: $formula$ for inline equations
+4. Use display math: $$formula$$ or \\[formula\\] for centered equations
+5. For geometry diagrams, use TikZ if simple, otherwise describe the diagram textually
+6. Return ONLY the LaTeX body code - NO preamble, NO \\documentclass, NO \\begin{document}
+7. DO NOT include options (ক, খ, গ, ঘ) - only the question stem
+8. Keep the code minimal and focused on the question content
+
+Example output:
+একটি সমবাহু ত্রিভুজের একটি বাহুর দৈর্ঘ্য $5$ সেমি হলে, এর ক্ষেত্রফল কত?
+
+OR for math-heavy:
+If $x^2 + 5x + 6 = 0$, then the value of $x$ is:
+
+Return ONLY the question body in LaTeX format, nothing else.
+"""
+
+        response = model.generate_content([prompt, uploaded_file])
+        latex_code = response.text.strip()
+
+        # Clean up response (remove markdown code blocks if present)
+        if latex_code.startswith("```latex"):
+            latex_code = latex_code[len("```latex"):].strip()
+        if latex_code.startswith("```"):
+            latex_code = latex_code[len("```"):].strip()
+        if latex_code.endswith("```"):
+            latex_code = latex_code[:-len("```")].strip()
+
+        # Remove any document class or preamble if model added them
+        if "\\documentclass" in latex_code or "\\begin{document}" in latex_code:
+            # Extract only the body between \begin{document} and \end{document}
+            doc_start = latex_code.find("\\begin{document}")
+            doc_end = latex_code.find("\\end{document}")
+            if doc_start != -1 and doc_end != -1:
+                latex_code = latex_code[doc_start + len("\\begin{document}"):doc_end].strip()
+
+        # Clean up temporary files
+        try:
+            os.remove(temp_path)
+            os.rmdir(temp_dir)
+        except:
+            pass
+
+        print(f"✅ LaTeX extracted successfully ({len(latex_code)} chars)")
+
+        return jsonify({
+            'success': True,
+            'latex_code': latex_code
+        })
+
+    except Exception as e:
+        print(f"❌ Error extracting LaTeX: {e}")
+        # Clean up on error
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            if os.path.exists(temp_dir):
+                os.rmdir(temp_dir)
+        except:
+            pass
+
+        return jsonify({
+            'success': False,
+            'error': f'Failed to extract LaTeX: {str(e)}'
+        }), 500
 
 
 @app.route("/sessions-list")
