@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature allows admin users to upload images of MCQ questions and automatically extract LaTeX code using Google's Gemini AI Vision API. This significantly speeds up the process of creating exams by eliminating manual LaTeX typing.
+This feature allows admin users to **upload images of full question papers** and automatically extract LaTeX code for **all questions at once** using Google's Gemini AI Vision API with a sophisticated two-step pipeline. This dramatically speeds up exam creation from ~10 minutes to ~30 seconds by eliminating manual LaTeX typing.
 
 ---
 
@@ -71,37 +71,42 @@ services:
 2. Enter admin credentials
 3. You'll be redirected to the admin panel
 
-### Step 2: Create Question Inputs
-1. Enter the number of questions (1-40)
-2. Click **"Create Question Inputs"**
-3. You'll see input fields for each question
-
-### Step 3: Upload Image for LaTeX Extraction
-For each question:
-
-1. Click the **"📷 Upload Image & Extract LaTeX"** button
-2. Select an image file containing the question:
+### Step 2: Upload Full Question Paper (Bulk Upload)
+1. Click the **"📷 Upload Full Question Paper"** button (blue button in AI-Powered Bulk Upload section)
+2. Select an image file of your complete question paper:
    - Supported formats: PNG, JPG, JPEG, GIF, WEBP
    - Recommended: High resolution, clear text
-   - Can contain: Bengali text, English text, math formulas, diagrams
+   - Can contain: 1-40 questions in any layout
+   - Supported content: Bengali text, English text, math formulas, diagrams
 
-3. Wait for processing (usually 3-10 seconds):
-   - Status shows: "⏳ Uploading and analyzing image..."
-   - The AI analyzes the image
-   - LaTeX code is extracted
+3. Wait for processing (20-30 seconds):
+   - Status shows: "⏳ Uploading and analyzing full question paper..."
+   - Step 1: AI analyzes image structure (5-10 seconds)
+   - Step 2: AI generates LaTeX for all questions (10-15 seconds)
+   - Step 3: Questions are parsed and populated automatically (<1 second)
 
-4. Review the extracted LaTeX:
-   - Code appears automatically in the textarea
-   - Status shows: "✅ LaTeX extracted successfully!"
-   - Edit the code if needed
+4. Review auto-populated fields:
+   - Question count is automatically set
+   - All LaTeX textareas are filled with extracted code
+   - Page scrolls to question inputs
+   - Status shows: "✅ Success! N questions extracted and populated"
 
-5. Repeat for other questions
+5. Edit if needed:
+   - Review each question's LaTeX code
+   - Make any necessary corrections
+   - Add or modify image URLs if needed
 
-### Step 4: Complete the Form
-1. Add optional image URLs if needed
-2. Enter correct answer keys (1-4)
-3. Fill in exam metadata (name, subject, duration)
+### Step 3: Complete the Form
+1. Verify question count matches your paper
+2. Enter correct answer keys (1-4 for each question)
+3. Fill in exam metadata (name, subject, duration, passing percentage)
 4. Click **"Compile & Show Output"**
+
+### Alternative: Manual Entry
+If you prefer manual entry or need to add questions individually:
+1. Enter the number of questions in "Manual Entry" section
+2. Click **"Create Question Inputs"**
+3. Type or paste LaTeX code into each textarea
 
 ---
 
@@ -124,27 +129,60 @@ For each question:
 
 ## Example Workflow
 
-### Input Image:
+### Full Question Paper Processing
+
+**Input: Image of question paper with 5 questions**
+
+**Step 1: AI Analysis Output (Internal)**
 ```
-১. যদি x + y = 10 এবং x - y = 2 হয়, তাহলে x এর মান কত?
+Total questions: 5
+Numbering format: 1., 2., 3., ...
+
+Question 1: "যদি x + y = 10 এবং x - y = 2 হয়, তাহলে x এর মান কত?"
+- Formula: x + y = 10, x - y = 2
+- Options: ক. 4, খ. 5, গ. 6, ঘ. 8
+
+Question 2: "Find the area of a circle with radius r = 5 cm."
+- Formula: r = 5
+- Options: A. 25π cm², B. 10π cm², C. 5π cm², D. 15π cm²
+
+... (3 more questions)
 ```
 
-### Extracted LaTeX:
-```latex
+**Step 2: LaTeX Generation Output**
+```
+### QUESTION 1 ###
 যদি $x + y = 10$ এবং $x - y = 2$ হয়, তাহলে $x$ এর মান কত?
-```
 
-### Another Example:
-
-**Input Image**:
-```
-Find the area of a circle with radius r = 5 cm.
-```
-
-**Extracted LaTeX**:
-```latex
+### QUESTION 2 ###
 Find the area of a circle with radius $r = 5$ cm.
+
+### QUESTION 3 ###
+একটি সমবাহু ত্রিভুজের একটি বাহুর দৈর্ঘ্য $5$ সেমি হলে, এর ক্ষেত্রফল কত?
+
+### QUESTION 4 ###
+If $x^2 - 5x + 6 = 0$, the roots are:
+
+### QUESTION 5 ###
+একটি আয়তক্ষেত্রের দৈর্ঘ্য $12$ মিটার এবং প্রস্থ $8$ মিটার। এর পরিসীমা কত?
 ```
+
+**Step 3: Result Sent to Frontend**
+```json
+{
+  "success": true,
+  "question_count": 5,
+  "questions": [
+    "যদি $x + y = 10$ এবং $x - y = 2$ হয়, তাহলে $x$ এর মান কত?",
+    "Find the area of a circle with radius $r = 5$ cm.",
+    "একটি সমবাহু ত্রিভুজের একটি বাহুর দৈর্ঘ্য $5$ সেমি হলে, এর ক্ষেত্রফল কত?",
+    "If $x^2 - 5x + 6 = 0$, the roots are:",
+    "একটি আয়তক্ষেত্রের দৈর্ঘ্য $12$ মিটার এবং প্রস্থ $8$ মিটার। এর পরিসীমা কত?"
+  ]
+}
+```
+
+**Final: All 5 textareas auto-populated, ready for review!**
 
 ---
 
@@ -197,9 +235,10 @@ POST /extract-latex
 ### Request
 - **Method**: POST (multipart/form-data)
 - **Authentication**: Admin session required
-- **Rate Limit**: 10 requests/minute
+- **Rate Limit**: 5 requests/minute (lower due to full paper processing)
 - **Body**:
-  - `image`: Image file (PNG/JPG/JPEG/GIF/WEBP)
+  - `image`: Image file of full question paper (PNG/JPG/JPEG/GIF/WEBP)
+- **Processing Time**: 20-30 seconds (varies with question count)
 
 ### Response
 
@@ -207,15 +246,38 @@ POST /extract-latex
 ```json
 {
   "success": true,
-  "latex_code": "যদি $x^2 + 5x + 6 = 0$ হয়..."
+  "question_count": 10,
+  "questions": [
+    "যদি $x^2 + 5x + 6 = 0$ হয়, তাহলে $x$ এর মান কত?",
+    "Find the area of a triangle with base $b = 10$ cm and height $h = 5$ cm.",
+    "একটি বৃত্তের ব্যাসার্ধ $7$ সেমি হলে, এর পরিধি কত?",
+    ...
+  ]
 }
 ```
 
-**Error (400/500/503)**:
+**Error - Parsing Failed (400)**:
 ```json
 {
   "success": false,
-  "error": "Error message here"
+  "error": "Could not extract individual questions. Please try a clearer image or upload questions separately.",
+  "raw_output": "### QUESTION 1\nযদি $x^2..."
+}
+```
+
+**Error - API Not Configured (503)**:
+```json
+{
+  "success": false,
+  "error": "Gemini API not configured. Please set GEMINI_API_KEY environment variable."
+}
+```
+
+**Error - General (500)**:
+```json
+{
+  "success": false,
+  "error": "Failed to extract LaTeX: Connection timeout"
 }
 ```
 
@@ -227,36 +289,79 @@ POST /extract-latex
 - **Model**: Gemini 1.5 Flash
 - **Provider**: Google AI
 - **Type**: Multimodal (Vision + Text)
-- **Capabilities**: Image analysis, OCR, LaTeX generation
+- **Capabilities**: Image analysis, OCR, LaTeX generation, structure understanding
 
-### Processing Flow
+### Two-Step Processing Pipeline
 ```
-1. User uploads image
+1. User uploads full question paper image
    ↓
 2. Image saved to temporary file
    ↓
 3. Image uploaded to Gemini API
    ↓
-4. AI analyzes image and extracts content
+4. STEP 1: Vision Analysis (5-10 seconds)
+   - AI analyzes image structure
+   - Identifies question count and numbering
+   - Extracts text verbatim (Bengali/English)
+   - Locates formulas and diagrams
+   - Lists MCQ options for reference
    ↓
-5. AI converts to LaTeX format
+5. STEP 2: LaTeX Generation (10-15 seconds)
+   - AI uses analysis as context
+   - Generates LaTeX for each question
+   - Separates with delimiter: "### QUESTION N ###"
+   - Excludes MCQ options (only question stem)
+   - Returns clean LaTeX snippets
    ↓
-6. Response cleaned (remove markdown, preamble)
+6. STEP 3: Parsing & Population (<1 second)
+   - Parse LaTeX to extract individual questions
+   - Try multiple delimiter patterns (### QUESTION N ###, Question N:, etc.)
+   - Fallback to numbered line parsing
+   - Clean each snippet (remove preamble, options, whitespace)
    ↓
-7. LaTeX code returned to frontend
+7. Response sent to frontend with array of questions
    ↓
-8. Textarea auto-populated
+8. Frontend auto-populates all textareas
    ↓
 9. Temporary files deleted
 ```
 
+### Retry Logic
+```
+If parsing fails:
+   ↓
+1. Send retry prompt with clarification
+2. Show first 500 chars of failed output
+3. Request proper delimiter format
+4. Parse again with same fallback patterns
+   ↓
+If still fails:
+   → Return error with raw output for debugging
+```
+
 ### Prompt Engineering
-The system uses a carefully crafted prompt to:
-- Extract text accurately (Bengali/English)
-- Convert math to proper LaTeX syntax
-- Return only the question body (no options)
-- Handle diagrams gracefully
-- Avoid adding document preambles
+
+**Step 1 Prompt (Analysis)**:
+- Request structured analysis (JSON-like format)
+- Identify total question count
+- Extract text exactly as shown
+- Locate mathematical formulas
+- Describe diagrams if present
+- DO NOT generate LaTeX yet
+
+**Step 2 Prompt (LaTeX Generation)**:
+- Use Step 1 analysis as input context
+- Require specific delimiter: "### QUESTION N ###"
+- Extract ONLY question stem (exclude options)
+- Preserve Bengali/English text
+- Convert formulas to LaTeX syntax
+- No preamble, no document structure
+- Clean, minimal output
+
+**Retry Prompt (Error Correction)**:
+- Show failed output sample
+- Emphasize correct delimiter format
+- Request regeneration with fixes
 
 ---
 
