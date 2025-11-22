@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Test LaTeX Input Fields</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        padding: 20px;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      h1 { color: #333; }
+      .test-section {
+        background: #fff3cd;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      button {
+        background: #1f6feb;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      button:hover {
+        background: #1a60cf;
+      }
+      input[type="number"] {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin: 0 10px;
+      }
+      .status {
+        margin-top: 15px;
+        padding: 10px;
+        background: #e7f3ff;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🧪 LaTeX Input Fields Test</h1>
+
+    <div class="test-section">
+      <h3>📝 Create Question Inputs</h3>
+      <label for="count">Number of questions:</label>
+      <input id="count" type="number" min="1" max="40" value="4" />
+      <button id="make" type="button">Create Question Inputs</button>
+
+      <div id="inputs" style="margin-top: 20px; width: 100%;"></div>
+    </div>
+
+    <div class="status" id="status">
+      Waiting for action...
+    </div>
+
+    <script>
+      console.log('🚀 Test script loading...');
+
+      const makeBtn = document.getElementById('make');
+      const countEl = document.getElementById('count');
+      const inputs = document.getElementById('inputs');
+      const status = document.getElementById('status');
+
+      console.log('✅ Elements found:', { makeBtn, countEl, inputs, status });
+
+      if (!makeBtn || !countEl || !inputs) {
+        console.error('❌ Required elements not found!');
+        status.innerHTML = '❌ ERROR: Required elements not found!';
+        status.style.background = '#f8d7da';
+      } else {
+        status.innerHTML = '✅ All elements found. Ready to test!';
+        status.style.background = '#d4edda';
+      }
+
+      // Mock function for image upload (since we're testing locally)
+      async function handleImageUpload(event, textarea, statusDiv) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        statusDiv.textContent = '⏳ Simulating upload... (no API in test mode)';
+        statusDiv.style.color = '#007bff';
+
+        // Simulate API response
+        setTimeout(() => {
+          textarea.value = 'Sample LaTeX: $x^2 + 5x + 6 = 0$';
+          statusDiv.textContent = '✅ Test LaTeX inserted!';
+          statusDiv.style.color = '#28a745';
+        }, 1000);
+      }
+
+      makeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        console.log('🖱️ Button clicked! Count value:', countEl.value);
+
+        const n = Math.max(1, Math.min(40, parseInt(countEl.value || '1', 10)));
+        console.log('📝 Creating', n, 'question inputs...');
+
+        status.innerHTML = `Creating ${n} question input(s)...`;
+        status.style.background = '#fff3cd';
+
+        inputs.innerHTML = '';
+
+        for (let i = 1; i <= n; i++) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'snippet';
+          wrapper.style.padding = '15px';
+          wrapper.style.border = '1px solid #ddd';
+          wrapper.style.borderRadius = '8px';
+          wrapper.style.marginBottom = '15px';
+          wrapper.style.background = '#f9f9f9';
+
+          const label = document.createElement('label');
+          label.textContent = `Question ${i}`;
+          label.style.fontSize = '16px';
+          label.style.fontWeight = 'bold';
+          label.style.marginBottom = '10px';
+          label.style.display = 'block';
+
+          // Image URL input section
+          const imageLabel = document.createElement('label');
+          imageLabel.textContent = 'Image URL (optional):';
+          imageLabel.style.marginTop = '10px';
+          imageLabel.style.display = 'block';
+          imageLabel.style.fontSize = '14px';
+          imageLabel.style.color = '#666';
+
+          const imageUrlInput = document.createElement('input');
+          imageUrlInput.type = 'text';
+          imageUrlInput.name = 'image_urls[]';
+          imageUrlInput.placeholder = 'https://example.com/image.png';
+          imageUrlInput.style.width = '100%';
+          imageUrlInput.style.padding = '8px';
+          imageUrlInput.style.marginTop = '5px';
+          imageUrlInput.style.marginBottom = '10px';
+          imageUrlInput.style.border = '1px solid #ddd';
+          imageUrlInput.style.borderRadius = '4px';
+
+          // LaTeX text area
+          const textLabel = document.createElement('label');
+          textLabel.textContent = 'LaTeX Code:';
+          textLabel.style.display = 'block';
+          textLabel.style.marginTop = '10px';
+
+          const ta = document.createElement('textarea');
+          ta.name = 'texts[]';
+          ta.rows = 5;
+          ta.placeholder = 'Enter LaTeX body...';
+          ta.style.width = '100%';
+          ta.style.padding = '8px';
+          ta.style.border = '1px solid #ccc';
+          ta.style.borderRadius = '6px';
+          ta.style.fontFamily = 'monospace';
+          ta.style.fontSize = '14px';
+          ta.style.marginTop = '5px';
+
+          // Image upload button for AI extraction
+          const uploadContainer = document.createElement('div');
+          uploadContainer.style.marginTop = '10px';
+          uploadContainer.style.marginBottom = '10px';
+
+          const uploadBtn = document.createElement('button');
+          uploadBtn.type = 'button';
+          uploadBtn.textContent = '📷 Upload Image & Extract LaTeX (Test Mode)';
+          uploadBtn.style.padding = '8px 16px';
+          uploadBtn.style.background = '#17a2b8';
+          uploadBtn.style.color = 'white';
+          uploadBtn.style.border = 'none';
+          uploadBtn.style.borderRadius = '4px';
+          uploadBtn.style.cursor = 'pointer';
+          uploadBtn.style.fontSize = '14px';
+
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = 'image/*';
+          fileInput.style.display = 'none';
+
+          const statusDiv = document.createElement('div');
+          statusDiv.style.marginTop = '5px';
+          statusDiv.style.fontSize = '13px';
+          statusDiv.style.color = '#666';
+
+          uploadBtn.addEventListener('click', () => fileInput.click());
+          fileInput.addEventListener('change', (e) => handleImageUpload(e, ta, statusDiv));
+
+          uploadContainer.appendChild(uploadBtn);
+          uploadContainer.appendChild(fileInput);
+          uploadContainer.appendChild(statusDiv);
+
+          wrapper.appendChild(label);
+          wrapper.appendChild(imageLabel);
+          wrapper.appendChild(imageUrlInput);
+          wrapper.appendChild(textLabel);
+          wrapper.appendChild(ta);
+          wrapper.appendChild(uploadContainer);
+          inputs.appendChild(wrapper);
+
+          console.log(`✅ Question ${i} created:`, {
+            hasTextarea: !!ta,
+            textareaName: ta.name,
+            textareaRows: ta.rows,
+            textareaVisible: ta.offsetHeight > 0,
+            textareaInWrapper: wrapper.contains(ta),
+            wrapperInInputs: inputs.contains(wrapper)
+          });
+        }
+
+        console.log('✅ Created', n, 'question input fields successfully');
+        console.log('📊 Total children in inputs div:', inputs.children.length);
+        console.log('📊 Total textareas:', inputs.querySelectorAll('textarea').length);
+
+        // Update status
+        const textareaCount = inputs.querySelectorAll('textarea').length;
+        status.innerHTML = `
+          ✅ SUCCESS!<br>
+          - Created: ${n} question wrapper(s)<br>
+          - Found: ${textareaCount} LaTeX textarea(s)<br>
+          - DOM children: ${inputs.children.length}<br>
+          - Check console for detailed logs
+        `;
+        status.style.background = '#d4edda';
+      });
+
+      // Auto-initialize on page load
+      console.log('🔄 Auto-initializing question inputs...');
+      try {
+        makeBtn.click();
+        console.log('✅ Initialization complete!');
+      } catch (error) {
+        console.error('❌ Error during initialization:', error);
+        status.innerHTML = `❌ ERROR: ${error.message}`;
+        status.style.background = '#f8d7da';
+      }
+    </script>
+  </body>
+</html>

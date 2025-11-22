@@ -80,9 +80,26 @@
         <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <h3 style="margin-top: 0;">📝 Questions</h3>
 
-          <label for="count">Number of questions:</label>
-          <input id="count" type="number" min="1" max="40" value="4" />
-          <button id="make" type="button">Create Question Inputs</button>
+          <!-- Bulk Upload Section -->
+          <div style="background: #e7f3ff; padding: 15px; border-radius: 6px; margin-bottom: 20px; border: 2px solid #007bff;">
+            <h4 style="margin: 0 0 10px 0; color: #0056b3;">🚀 AI-Powered Bulk Upload</h4>
+            <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
+              Upload an image of your full question paper to automatically extract all questions using AI.
+            </p>
+            <button id="bulk-upload-btn" type="button" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">
+              📷 Upload Full Question Paper
+            </button>
+            <input id="bulk-upload-input" type="file" accept="image/*" style="display: none;" />
+            <div id="bulk-upload-status" style="margin-top: 10px; font-size: 13px; min-height: 20px;"></div>
+          </div>
+
+          <!-- Manual Entry Section -->
+          <div style="border-top: 2px solid #ddd; padding-top: 15px;">
+            <h4 style="margin: 0 0 10px 0;">✏️ Manual Entry</h4>
+            <label for="count">Number of questions:</label>
+            <input id="count" type="number" min="1" max="40" value="4" />
+            <button id="make" type="button">Create Question Inputs</button>
+          </div>
 
           <div id="inputs" style="margin-top: 20px; width: 100%;"></div>
         </div>
@@ -113,21 +130,26 @@
       const inputs = document.getElementById('inputs');
       const correctAnswersInput = document.getElementById('correct-answers');
       const form = document.getElementById('snippet-form');
+      const bulkUploadBtn = document.getElementById('bulk-upload-btn');
+      const bulkUploadInput = document.getElementById('bulk-upload-input');
+      const bulkUploadStatus = document.getElementById('bulk-upload-status');
 
-      console.log('Elements found:', { makeBtn, countEl, inputs, correctAnswersInput, form });
+      console.log('Elements found:', { makeBtn, countEl, inputs, correctAnswersInput, form, bulkUploadBtn });
 
       if (!makeBtn || !countEl || !inputs) {
         console.error('Required elements not found!');
         alert('Error: Required elements not found. Please contact support.');
       }
 
-      // Function to handle image upload and LaTeX extraction
-      async function handleImageUpload(event, textarea, statusDiv) {
+      // Function to handle bulk upload of full question paper
+      async function handleBulkUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
 
-        statusDiv.textContent = '⏳ Uploading and analyzing image...';
-        statusDiv.style.color = '#007bff';
+        bulkUploadStatus.innerHTML = '⏳ <strong>Uploading and analyzing full question paper...</strong><br><small>This may take 20-30 seconds</small>';
+        bulkUploadStatus.style.color = '#007bff';
+        bulkUploadBtn.disabled = true;
+        bulkUploadBtn.textContent = '⏳ Processing...';
 
         const formData = new FormData();
         formData.append('image', file);
@@ -141,18 +163,53 @@
           const data = await response.json();
 
           if (response.ok && data.success) {
-            textarea.value = data.latex_code;
-            statusDiv.textContent = '✅ LaTeX extracted successfully!';
-            statusDiv.style.color = '#28a745';
-            setTimeout(() => { statusDiv.textContent = ''; }, 5000);
+            const questionCount = data.question_count;
+            const questions = data.questions;
+
+            bulkUploadStatus.innerHTML = `✅ <strong>Successfully extracted ${questionCount} questions!</strong><br><small>Auto-populating question fields...</small>`;
+            bulkUploadStatus.style.color = '#28a745';
+
+            // Update question count
+            countEl.value = questionCount;
+
+            // Create question inputs if not already created
+            console.log('Creating', questionCount, 'question inputs...');
+            makeBtn.click();  // This will create the input fields
+
+            // Wait a moment for DOM to update
+            setTimeout(() => {
+              // Populate each textarea with extracted LaTeX
+              const textareas = document.querySelectorAll('textarea[name="texts[]"]');
+              console.log('Found', textareas.length, 'textareas to populate');
+
+              for (let i = 0; i < Math.min(textareas.length, questions.length); i++) {
+                textareas[i].value = questions[i];
+                console.log(`Populated question ${i + 1}:`, questions[i].substring(0, 50) + '...');
+              }
+
+              bulkUploadStatus.innerHTML = `✅ <strong>Success! ${questionCount} questions extracted and populated.</strong><br><small>Review and edit if needed, then compile.</small>`;
+
+              // Reset file input
+              bulkUploadInput.value = '';
+              bulkUploadBtn.disabled = false;
+              bulkUploadBtn.textContent = '📷 Upload Full Question Paper';
+
+              // Scroll to questions
+              inputs.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 500);
+
           } else {
-            statusDiv.textContent = '❌ Error: ' + (data.error || 'Failed to extract LaTeX');
-            statusDiv.style.color = '#dc3545';
+            bulkUploadStatus.innerHTML = `❌ <strong>Error:</strong> ${data.error || 'Failed to extract questions'}`;
+            bulkUploadStatus.style.color = '#dc3545';
+            bulkUploadBtn.disabled = false;
+            bulkUploadBtn.textContent = '📷 Upload Full Question Paper';
           }
         } catch (error) {
-          console.error('Upload error:', error);
-          statusDiv.textContent = '❌ Network error. Please try again.';
-          statusDiv.style.color = '#dc3545';
+          console.error('Bulk upload error:', error);
+          bulkUploadStatus.innerHTML = '❌ <strong>Network error.</strong> Please try again.';
+          bulkUploadStatus.style.color = '#dc3545';
+          bulkUploadBtn.disabled = false;
+          bulkUploadBtn.textContent = '📷 Upload Full Question Paper';
         }
       }
 
@@ -205,8 +262,8 @@
 
           const ta = document.createElement('textarea');
           ta.name = 'texts[]';
-          ta.rows = 5;
-          ta.placeholder = 'Enter LaTeX body...';
+          ta.rows = 6;
+          ta.placeholder = 'Enter LaTeX body or use bulk upload above...';
           ta.style.width = '100%';
           ta.style.padding = '8px';
           ta.style.border = '1px solid #ccc';
@@ -215,45 +272,11 @@
           ta.style.fontSize = '14px';
           ta.style.marginTop = '5px';
 
-          // Image upload button for AI extraction
-          const uploadContainer = document.createElement('div');
-          uploadContainer.style.marginTop = '10px';
-          uploadContainer.style.marginBottom = '10px';
-
-          const uploadBtn = document.createElement('button');
-          uploadBtn.type = 'button';
-          uploadBtn.textContent = '📷 Upload Image & Extract LaTeX';
-          uploadBtn.style.padding = '8px 16px';
-          uploadBtn.style.background = '#17a2b8';
-          uploadBtn.style.color = 'white';
-          uploadBtn.style.border = 'none';
-          uploadBtn.style.borderRadius = '4px';
-          uploadBtn.style.cursor = 'pointer';
-          uploadBtn.style.fontSize = '14px';
-
-          const fileInput = document.createElement('input');
-          fileInput.type = 'file';
-          fileInput.accept = 'image/*';
-          fileInput.style.display = 'none';
-
-          const statusDiv = document.createElement('div');
-          statusDiv.style.marginTop = '5px';
-          statusDiv.style.fontSize = '13px';
-          statusDiv.style.color = '#666';
-
-          uploadBtn.addEventListener('click', () => fileInput.click());
-          fileInput.addEventListener('change', (e) => handleImageUpload(e, ta, statusDiv));
-
-          uploadContainer.appendChild(uploadBtn);
-          uploadContainer.appendChild(fileInput);
-          uploadContainer.appendChild(statusDiv);
-
           wrapper.appendChild(label);
           wrapper.appendChild(imageLabel);
           wrapper.appendChild(imageUrlInput);
           wrapper.appendChild(textLabel);
           wrapper.appendChild(ta);
-          wrapper.appendChild(uploadContainer);
           inputs.appendChild(wrapper);
 
           console.log(`Question ${i} created:`, {
@@ -324,6 +347,13 @@
       
       // Update placeholder when count changes
       countEl.addEventListener('change', updateCorrectAnswersPlaceholder);
+
+      // Bulk upload event listeners
+      bulkUploadBtn.addEventListener('click', () => {
+        bulkUploadInput.click();
+      });
+
+      bulkUploadInput.addEventListener('change', handleBulkUpload);
 
       // initialize
       console.log('Auto-initializing question inputs...');
