@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bulk Upload Button Test</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+      background: #f5f5f5;
+    }
+    .test-container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+    }
+    .test-section {
+      background: #e7f3ff;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      border: 2px solid #007bff;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      min-height: 20px;
+    }
+    .log {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+    }
+    .log-entry {
+      margin: 5px 0;
+      padding: 5px;
+      border-left: 3px solid #007bff;
+      padding-left: 10px;
+    }
+    .log-entry.success {
+      border-left-color: #28a745;
+      background: #d4edda;
+    }
+    .log-entry.error {
+      border-left-color: #dc3545;
+      background: #f8d7da;
+    }
+    .log-entry.info {
+      border-left-color: #17a2b8;
+      background: #d1ecf1;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <h1>🧪 Bulk Upload Button Test</h1>
+    <p>This page tests the bulk upload button functionality in isolation.</p>
+
+    <div class="test-section">
+      <h3 style="margin: 0 0 10px 0; color: #0056b3;">🚀 Test Bulk Upload Button</h3>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
+        Click the button below to test if the file picker opens correctly.
+      </p>
+      <button id="bulk-upload-btn" type="button">
+        📷 Upload Full Question Paper
+      </button>
+      <input id="bulk-upload-input" type="file" accept="image/*" style="display: none;" />
+      <div id="bulk-upload-status" class="status" style="color: #666;"></div>
+    </div>
+
+    <div class="log" id="log">
+      <strong>📋 Test Log:</strong>
+      <div id="log-entries"></div>
+    </div>
+  </div>
+
+  <script>
+    // Logger function
+    function log(message, type = 'info') {
+      const logEntries = document.getElementById('log-entries');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      const timestamp = new Date().toLocaleTimeString();
+      entry.textContent = `[${timestamp}] ${message}`;
+      logEntries.appendChild(entry);
+      console.log(`[${type.toUpperCase()}]`, message);
+      logEntries.scrollTop = logEntries.scrollHeight;
+    }
+
+    log('🚀 Test script loading...', 'info');
+
+    // Get elements
+    const bulkUploadBtn = document.getElementById('bulk-upload-btn');
+    const bulkUploadInput = document.getElementById('bulk-upload-input');
+    const bulkUploadStatus = document.getElementById('bulk-upload-status');
+
+    // Check if elements exist
+    if (!bulkUploadBtn) {
+      log('❌ ERROR: bulk-upload-btn not found!', 'error');
+    } else {
+      log('✅ bulk-upload-btn found', 'success');
+    }
+
+    if (!bulkUploadInput) {
+      log('❌ ERROR: bulk-upload-input not found!', 'error');
+    } else {
+      log('✅ bulk-upload-input found', 'success');
+    }
+
+    if (!bulkUploadStatus) {
+      log('❌ ERROR: bulk-upload-status not found!', 'error');
+    } else {
+      log('✅ bulk-upload-status found', 'success');
+    }
+
+    // Add event listeners if elements exist
+    if (bulkUploadBtn && bulkUploadInput && bulkUploadStatus) {
+      log('Setting up event listeners...', 'info');
+
+      // Hover effects
+      bulkUploadBtn.addEventListener('mouseenter', () => {
+        if (!bulkUploadBtn.disabled) {
+          bulkUploadBtn.style.background = '#0056b3';
+          log('🖱️ Mouse entered button area', 'info');
+        }
+      });
+
+      bulkUploadBtn.addEventListener('mouseleave', () => {
+        if (!bulkUploadBtn.disabled) {
+          bulkUploadBtn.style.background = '#007bff';
+          log('🖱️ Mouse left button area', 'info');
+        }
+      });
+
+      // Click handler
+      bulkUploadBtn.addEventListener('click', (e) => {
+        log('🖱️ BUTTON CLICKED!', 'success');
+        e.preventDefault();
+        e.stopPropagation();
+
+        bulkUploadStatus.textContent = 'Opening file picker...';
+        bulkUploadStatus.style.color = '#007bff';
+
+        log('📂 Triggering file input click...', 'info');
+        bulkUploadInput.click();
+        log('✅ File input click triggered', 'success');
+      });
+
+      // File input change handler
+      bulkUploadInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          log(`📁 File selected: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'success');
+          bulkUploadStatus.textContent = `Selected: ${file.name}`;
+          bulkUploadStatus.style.color = '#28a745';
+
+          // Simulate upload (no actual API call in test)
+          setTimeout(() => {
+            bulkUploadStatus.textContent = '✅ Test complete! File picker works correctly.';
+            log('✅ TEST PASSED: File picker opened and file selected successfully!', 'success');
+          }, 500);
+        } else {
+          log('⚠️ No file selected (user cancelled)', 'info');
+          bulkUploadStatus.textContent = 'File selection cancelled';
+          bulkUploadStatus.style.color = '#856404';
+        }
+      });
+
+      log('✅ Event listeners attached successfully', 'success');
+
+      // Test button state after 1 second
+      setTimeout(() => {
+        log('Running button state test...', 'info');
+        log(`  - Button exists: ${!!bulkUploadBtn}`, 'info');
+        log(`  - Button visible: ${bulkUploadBtn.offsetHeight > 0}`, 'info');
+        log(`  - Button enabled: ${!bulkUploadBtn.disabled}`, 'info');
+        log(`  - Button width: ${bulkUploadBtn.offsetWidth}px`, 'info');
+        log(`  - Button height: ${bulkUploadBtn.offsetHeight}px`, 'info');
+        log('✅ Button is ready to test!', 'success');
+
+        bulkUploadStatus.textContent = 'Ready! Click the button above to test.';
+        bulkUploadStatus.style.color = '#28a745';
+      }, 1000);
+
+    } else {
+      log('❌ CRITICAL ERROR: Cannot set up event listeners - elements missing!', 'error');
+      alert('Test failed: Required elements not found!');
+    }
+
+    // Test instructions
+    setTimeout(() => {
+      log('═══════════════════════════════════════', 'info');
+      log('TEST INSTRUCTIONS:', 'info');
+      log('1. Click the "Upload Full Question Paper" button', 'info');
+      log('2. File picker should open', 'info');
+      log('3. Select any image file', 'info');
+      log('4. Check if file name appears in status', 'info');
+      log('═══════════════════════════════════════', 'info');
+    }, 1500);
+  </script>
+</body>
+</html>
