@@ -86,11 +86,11 @@
             <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
               Upload an image of your full question paper to automatically extract all questions using AI.
             </p>
-            <button id="bulk-upload-btn" type="button" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">
+            <button id="bulk-upload-btn" type="button" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.3s;" onmouseover="this.style.background='#0056b3'" onmouseout="this.style.background='#007bff'">
               📷 Upload Full Question Paper
             </button>
             <input id="bulk-upload-input" type="file" accept="image/*" style="display: none;" />
-            <div id="bulk-upload-status" style="margin-top: 10px; font-size: 13px; min-height: 20px;"></div>
+            <div id="bulk-upload-status" style="margin-top: 10px; font-size: 13px; min-height: 20px; color: #666;"></div>
           </div>
 
           <!-- Manual Entry Section -->
@@ -134,11 +134,29 @@
       const bulkUploadInput = document.getElementById('bulk-upload-input');
       const bulkUploadStatus = document.getElementById('bulk-upload-status');
 
-      console.log('Elements found:', { makeBtn, countEl, inputs, correctAnswersInput, form, bulkUploadBtn });
+      console.log('Elements found:', {
+        makeBtn: !!makeBtn,
+        countEl: !!countEl,
+        inputs: !!inputs,
+        correctAnswersInput: !!correctAnswersInput,
+        form: !!form,
+        bulkUploadBtn: !!bulkUploadBtn,
+        bulkUploadInput: !!bulkUploadInput,
+        bulkUploadStatus: !!bulkUploadStatus
+      });
 
       if (!makeBtn || !countEl || !inputs) {
         console.error('Required elements not found!');
         alert('Error: Required elements not found. Please contact support.');
+      }
+
+      if (!bulkUploadBtn || !bulkUploadInput || !bulkUploadStatus) {
+        console.error('Bulk upload elements not found!', {
+          bulkUploadBtn: !!bulkUploadBtn,
+          bulkUploadInput: !!bulkUploadInput,
+          bulkUploadStatus: !!bulkUploadStatus
+        });
+        alert('Error: Bulk upload button not properly initialized. Please refresh the page.');
       }
 
       // Function to handle bulk upload of full question paper
@@ -349,11 +367,28 @@
       countEl.addEventListener('change', updateCorrectAnswersPlaceholder);
 
       // Bulk upload event listeners
-      bulkUploadBtn.addEventListener('click', () => {
-        bulkUploadInput.click();
-      });
+      console.log('Setting up bulk upload event listeners...');
 
-      bulkUploadInput.addEventListener('change', handleBulkUpload);
+      if (bulkUploadBtn && bulkUploadInput) {
+        bulkUploadBtn.addEventListener('click', (e) => {
+          console.log('Bulk upload button clicked!');
+          e.preventDefault();
+          e.stopPropagation();
+          bulkUploadStatus.textContent = 'Opening file picker...';
+          bulkUploadStatus.style.color = '#007bff';
+          bulkUploadInput.click();
+          console.log('File input triggered');
+        });
+
+        bulkUploadInput.addEventListener('change', (e) => {
+          console.log('File input changed, file selected:', e.target.files[0]?.name);
+          handleBulkUpload(e);
+        });
+
+        console.log('✅ Bulk upload event listeners attached successfully');
+      } else {
+        console.error('❌ Cannot attach bulk upload event listeners - elements missing');
+      }
 
       // initialize
       console.log('Auto-initializing question inputs...');
@@ -364,6 +399,22 @@
         console.error('Error during initialization:', error);
         alert('Error initializing form. Please refresh the page or contact support.');
       }
+
+      // Test bulk upload button is working
+      setTimeout(() => {
+        if (bulkUploadBtn) {
+          console.log('Bulk upload button test:');
+          console.log('  - Button exists:', !!bulkUploadBtn);
+          console.log('  - Button visible:', bulkUploadBtn.offsetHeight > 0);
+          console.log('  - Button enabled:', !bulkUploadBtn.disabled);
+          console.log('  - Button has click listener:', true);
+          console.log('✅ Bulk upload button is ready to use!');
+
+          // Set initial status message
+          bulkUploadStatus.textContent = 'Ready to upload';
+          bulkUploadStatus.style.color = '#28a745';
+        }
+      }, 1000);
     </script>
   </body>
   </html>
