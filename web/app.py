@@ -782,9 +782,9 @@ def input_page():
 
 @app.route("/extract-latex", methods=['POST'])
 @admin_required
-@limiter.limit("10 per minute")  # Rate limit to prevent API abuse
+@limiter.limit("5 per minute")  # Lower rate limit for full paper processing
 def extract_latex():
-    """Extract LaTeX code from uploaded question image using Gemini Vision API"""
+    """Extract LaTeX code from uploaded full question paper using Gemini Vision API with two-step pipeline"""
     if not GEMINI_AVAILABLE:
         return jsonify({
             'success': False,
@@ -805,60 +805,110 @@ def extract_latex():
     if ext not in allowed_extensions:
         return jsonify({'success': False, 'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
 
+    temp_path = None
+    temp_dir = None
+
     try:
         # Save uploaded image temporarily
         temp_dir = tempfile.mkdtemp()
         temp_path = os.path.join(temp_dir, filename)
         image_file.save(temp_path)
 
-        # Upload to Gemini and analyze
-        print(f"📷 Analyzing image: {filename}")
-        uploaded_file = genai.upload_file(temp_path)
+        print(f"📷 Analyzing full question paper: {filename}")
 
-        # Use Gemini Pro Vision model
+        # STEP 1: Vision Analysis - Understand the structure
+        uploaded_file = genai.upload_file(temp_path)
         model = genai.GenerativeModel('gemini-1.5-flash')
 
-        # Prompt for LaTeX extraction
-        prompt = """
-Analyze this MCQ (Multiple Choice Question) test paper image and extract ONLY the LaTeX body code for ONE question.
+        step1_prompt = """
+Analyze this MCQ test paper image carefully.
 
-IMPORTANT INSTRUCTIONS:
-1. Extract text exactly (preserve Bengali/English characters)
-2. Convert all mathematical formulas to proper LaTeX syntax
-3. Use inline math: $formula$ for inline equations
-4. Use display math: $$formula$$ or \\[formula\\] for centered equations
-5. For geometry diagrams, use TikZ if simple, otherwise describe the diagram textually
-6. Return ONLY the LaTeX body code - NO preamble, NO \\documentclass, NO \\begin{document}
-7. DO NOT include options (ক, খ, গ, ঘ) - only the question stem
-8. Keep the code minimal and focused on the question content
+TASK: Provide a structured analysis of the question paper.
 
-Example output:
-একটি সমবাহু ত্রিভুজের একটি বাহুর দৈর্ঘ্য $5$ সেমি হলে, এর ক্ষেত্রফল কত?
+OUTPUT FORMAT (JSON-like structure):
+1. Total number of questions
+2. Question numbering format (1., Q1, etc.)
+3. For each question:
+   - Question number
+   - Question text (Bengali/English, exact transcription)
+   - Mathematical formulas (identify locations)
+   - Diagrams/images (describe if present)
+   - MCQ options (ক, খ, গ, ঘ or A, B, C, D) - list them
+4. Layout information (single/multi-column, formatting)
 
-OR for math-heavy:
-If $x^2 + 5x + 6 = 0$, then the value of $x$ is:
-
-Return ONLY the question body in LaTeX format, nothing else.
+DO NOT generate LaTeX yet. Just analyze and describe the content structure.
+Be thorough and accurate with text extraction.
 """
 
-        response = model.generate_content([prompt, uploaded_file])
-        latex_code = response.text.strip()
+        print("🔍 Step 1: Analyzing question paper structure...")
+        response_step1 = model.generate_content([step1_prompt, uploaded_file])
+        content_description = response_step1.text.strip()
+        print(f"✅ Structure analysis complete ({len(content_description)} chars)")
 
-        # Clean up response (remove markdown code blocks if present)
-        if latex_code.startswith("```latex"):
-            latex_code = latex_code[len("```latex"):].strip()
-        if latex_code.startswith("```"):
-            latex_code = latex_code[len("```"):].strip()
-        if latex_code.endswith("```"):
-            latex_code = latex_code[:-len("```")].strip()
+        # STEP 2: LaTeX Generation - Convert to LaTeX snippets
+        step2_prompt = f"""
+Based on this analysis of a question paper:
+{content_description}
 
-        # Remove any document class or preamble if model added them
-        if "\\documentclass" in latex_code or "\\begin{document}" in latex_code:
-            # Extract only the body between \begin{document} and \end{document}
-            doc_start = latex_code.find("\\begin{document}")
-            doc_end = latex_code.find("\\end{document}")
-            if doc_start != -1 and doc_end != -1:
-                latex_code = latex_code[doc_start + len("\\begin{document}"):doc_end].strip()
+TASK: Generate LaTeX code for EACH question separately.
+
+REQUIREMENTS:
+1. Output format: Separate each question with delimiter "### QUESTION N ###"
+2. For each question:
+   - Extract ONLY the question stem (not the options)
+   - Convert text exactly (preserve Bengali/English)
+   - Convert math formulas to LaTeX: $inline$ or $$display$$
+   - Use \\textbf{{}} for bold, \\textit{{}} for italics
+   - For diagrams: use TikZ if simple, otherwise textual description
+   - DO NOT include \\documentclass, \\begin{{document}}, or preamble
+   - DO NOT include MCQ options (ক, খ, গ, ঘ)
+   - Return ONLY the question body as clean LaTeX snippet
+
+EXAMPLE OUTPUT FORMAT:
+### QUESTION 1 ###
+যদি $x^2 + 5x + 6 = 0$ হয়, তাহলে $x$ এর মান কত?
+
+### QUESTION 2 ###
+একটি সমবাহু ত্রিভুজের একটি বাহুর দৈর্ঘ্য $5$ সেমি হলে, এর ক্ষেত্রফল কত?
+
+### QUESTION 3 ###
+The value of $\\frac{{a^2 - b^2}}{{a + b}}$ when $a = 5$ and $b = 3$ is:
+
+Generate LaTeX for ALL questions found in the analysis.
+"""
+
+        print("📝 Step 2: Generating LaTeX code for all questions...")
+        response_step2 = model.generate_content(step2_prompt)
+        full_latex = response_step2.text.strip()
+        print(f"✅ LaTeX generation complete ({len(full_latex)} chars)")
+
+        # STEP 3: Parse LaTeX to extract individual questions
+        questions = parse_latex_questions(full_latex)
+
+        if not questions:
+            # Retry with error correction if parsing failed
+            print("⚠️ Parsing failed, retrying with clarification...")
+            retry_prompt = f"""
+The previous output was not properly formatted. Please regenerate with correct format.
+
+CRITICAL: Use exactly this delimiter between questions: ### QUESTION N ###
+where N is the question number (1, 2, 3, etc.)
+
+Previous output:
+{full_latex[:500]}...
+
+Regenerate with proper delimiters.
+"""
+            response_retry = model.generate_content(retry_prompt)
+            full_latex = response_retry.text.strip()
+            questions = parse_latex_questions(full_latex)
+
+        if not questions:
+            return jsonify({
+                'success': False,
+                'error': 'Could not extract individual questions. Please try a clearer image or upload questions separately.',
+                'raw_output': full_latex[:500]  # For debugging
+            }), 400
 
         # Clean up temporary files
         try:
@@ -867,20 +917,24 @@ Return ONLY the question body in LaTeX format, nothing else.
         except:
             pass
 
-        print(f"✅ LaTeX extracted successfully ({len(latex_code)} chars)")
+        print(f"✅ Successfully extracted {len(questions)} questions")
 
         return jsonify({
             'success': True,
-            'latex_code': latex_code
+            'question_count': len(questions),
+            'questions': questions  # Array of LaTeX snippets
         })
 
     except Exception as e:
         print(f"❌ Error extracting LaTeX: {e}")
+        import traceback
+        traceback.print_exc()
+
         # Clean up on error
         try:
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
-            if os.path.exists(temp_dir):
+            if temp_dir and os.path.exists(temp_dir):
                 os.rmdir(temp_dir)
         except:
             pass
@@ -889,6 +943,91 @@ Return ONLY the question body in LaTeX format, nothing else.
             'success': False,
             'error': f'Failed to extract LaTeX: {str(e)}'
         }), 500
+
+
+def parse_latex_questions(latex_text: str) -> list:
+    """Parse LaTeX output to extract individual question snippets"""
+    import re
+
+    # Clean markdown code blocks if present
+    latex_text = latex_text.replace("```latex", "").replace("```", "").strip()
+
+    # Split by question delimiter
+    # Try multiple delimiter patterns
+    patterns = [
+        r'###\s*QUESTION\s+(\d+)\s*###',  # ### QUESTION N ###
+        r'##\s*Question\s+(\d+)\s*##',    # ## Question N ##
+        r'\*\*Question\s+(\d+)\*\*',       # **Question N**
+        r'Question\s+(\d+):',               # Question N:
+        r'^\d+\.',                          # 1., 2., 3. at line start
+    ]
+
+    questions = []
+
+    for pattern in patterns:
+        splits = re.split(pattern, latex_text, flags=re.MULTILINE | re.IGNORECASE)
+
+        if len(splits) > 2:  # Found delimiters
+            # Extract questions (skip first element if it's header text)
+            for i in range(1, len(splits), 2):  # Every odd index is a question number
+                if i + 1 < len(splits):
+                    question_text = splits[i + 1].strip()
+                    # Clean up the question
+                    question_text = clean_latex_snippet(question_text)
+                    if question_text and len(question_text) > 5:  # Minimum length check
+                        questions.append(question_text)
+
+            if questions:
+                break  # Successfully parsed
+
+    # Fallback: If no delimiter found, try to split by common patterns
+    if not questions:
+        # Try splitting by numbered lines (1. 2. 3. etc.)
+        lines = latex_text.split('\n')
+        current_question = []
+
+        for line in lines:
+            if re.match(r'^\d+\.', line.strip()):  # New question starts
+                if current_question:
+                    q_text = '\n'.join(current_question).strip()
+                    q_text = clean_latex_snippet(q_text)
+                    if q_text:
+                        questions.append(q_text)
+                    current_question = []
+                # Remove the number prefix
+                line = re.sub(r'^\d+\.\s*', '', line.strip())
+                if line:
+                    current_question.append(line)
+            elif line.strip():
+                current_question.append(line)
+
+        # Add last question
+        if current_question:
+            q_text = '\n'.join(current_question).strip()
+            q_text = clean_latex_snippet(q_text)
+            if q_text:
+                questions.append(q_text)
+
+    return questions
+
+
+def clean_latex_snippet(text: str) -> str:
+    """Clean up a LaTeX snippet"""
+    # Remove document commands if present
+    text = re.sub(r'\\documentclass.*?\n', '', text)
+    text = re.sub(r'\\usepackage.*?\n', '', text)
+    text = re.sub(r'\\begin\{document\}', '', text)
+    text = re.sub(r'\\end\{document\}', '', text)
+
+    # Remove MCQ options (ক, খ, গ, ঘ) or (A, B, C, D) patterns
+    # Pattern: option letter followed by dot or paren and text
+    text = re.sub(r'\n\s*[ক-ঘABCD][.)\]]\s*.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+
+    # Remove extra whitespace
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple blank lines to double
+    text = text.strip()
+
+    return text
 
 
 @app.route("/sessions-list")
