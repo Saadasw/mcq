@@ -85,8 +85,9 @@
             <h4 style="margin: 0 0 10px 0; color: #0056b3;">🚀 AI-Powered Bulk Upload</h4>
             <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
               Upload an image of your full question paper to automatically extract all questions using AI.
+              <br><small style="color: #856404;"><strong>Note:</strong> Requires GEMINI_API_KEY environment variable. Processing takes 20-30 seconds.</small>
             </p>
-            <button id="bulk-upload-btn" type="button" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.3s;" onmouseover="this.style.background='#0056b3'" onmouseout="this.style.background='#007bff'">
+            <button id="bulk-upload-btn" type="button" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.3s;">
               📷 Upload Full Question Paper
             </button>
             <input id="bulk-upload-input" type="file" accept="image/*" style="display: none;" />
@@ -217,7 +218,14 @@
             }, 500);
 
           } else {
-            bulkUploadStatus.innerHTML = `❌ <strong>Error:</strong> ${data.error || 'Failed to extract questions'}`;
+            let errorMessage = data.error || 'Failed to extract questions';
+
+            // Add helpful context for common errors
+            if (errorMessage.includes('Gemini API not configured')) {
+              errorMessage += '<br><small>Please set GEMINI_API_KEY environment variable. See IMAGE_TO_LATEX_GUIDE.md for instructions.</small>';
+            }
+
+            bulkUploadStatus.innerHTML = `❌ <strong>Error:</strong> ${errorMessage}`;
             bulkUploadStatus.style.color = '#dc3545';
             bulkUploadBtn.disabled = false;
             bulkUploadBtn.textContent = '📷 Upload Full Question Paper';
@@ -370,6 +378,19 @@
       console.log('Setting up bulk upload event listeners...');
 
       if (bulkUploadBtn && bulkUploadInput) {
+        // Add hover effects via JavaScript (cleaner than inline handlers)
+        bulkUploadBtn.addEventListener('mouseenter', () => {
+          if (!bulkUploadBtn.disabled) {
+            bulkUploadBtn.style.background = '#0056b3';
+          }
+        });
+
+        bulkUploadBtn.addEventListener('mouseleave', () => {
+          if (!bulkUploadBtn.disabled) {
+            bulkUploadBtn.style.background = '#007bff';
+          }
+        });
+
         bulkUploadBtn.addEventListener('click', (e) => {
           console.log('Bulk upload button clicked!');
           e.preventDefault();
